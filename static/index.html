@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Common Agent</title>
+<link rel="stylesheet" href="/static/style.css?v=agents-full-width-11">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><span class="brand-mark">CA</span><span class="brand-name">Common Agent</span></div>
+    <nav class="tabs" aria-label="주요 탭">
+      <button class="tab on" data-tab="tools" aria-current="page">도구</button>
+      <button class="tab" data-tab="mcp">MCP</button>
+      <button class="tab" data-tab="agents" id="tabAgents">에이전트</button>
+    </nav>
+    <div class="top-meta"><span class="local-status"><i></i>127.0.0.1:8770</span><span id="headerModel">모델 확인 중…</span></div>
+  </div>
+</header>
+<div id="errors" class="errors" role="alert" hidden></div>
+
+<main class="panel on tools-layout" data-panel="tools">
+  <section class="tools-main">
+    <section class="card prompt-card" id="roleCard">
+      <div class="card-head"><div><h2>역할 지시문</h2><span class="subtle">state/ 에 저장</span></div><div class="head-actions"><button class="ghost" id="resetPrompt">초기화</button><button class="primary compact" id="savePrompt">저장</button></div></div>
+      <label for="prompt" class="sr-only">AI가 요청을 처리할 때 따르는 역할 지시문</label>
+      <textarea id="prompt" rows="5"></textarea>
+    </section>
+
+    <section class="card conversation-card">
+      <div class="card-head"><div class="conversation-title"><h2>대화</h2><span class="subtle" id="chatCount"></span></div><button class="ghost" id="resetChat">대화 초기화</button></div>
+      <div id="chatLog" class="chat-log" aria-label="저장된 대화"></div>
+      <div id="answer" class="answer" aria-live="polite" hidden></div>
+      <div id="calls" class="calls"></div>
+      <label class="sr-only" for="message">도구를 사용해 처리할 요청</label>
+      <div class="ask"><input id="message" type="text" placeholder="요청을 입력하세요" autocomplete="off"><button class="primary" id="send">보내기</button></div>
+    </section>
+  </section>
+
+  <aside class="tools-sidebar">
+    <section class="card context-card" id="contextCard" aria-labelledby="contextHeading">
+    <div class="card-head"><h2 id="contextHeading">Context Window</h2><span class="section-tag" id="contextModel">사용량 확인 중…</span></div>
+    <div class="context-row"><span>전체 현황</span><strong id="contextTotal">—</strong></div>
+    <div class="context-track" id="contextCapacity" role="progressbar" tabindex="0" aria-label="최대 Context Window 대비 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-describedby="contextNote">
+      <div id="contextUsed" class="context-used"></div>
+    </div>
+    <div class="context-row"><span>사용 중 상세 현황</span><span class="context-caption">현재 사용량 = 100% · 항목별 추정</span></div>
+    <div class="context-stack" role="group" aria-label="현재 사용량의 항목별 비중">
+      <span id="contextInstructions" class="context-segment cw-instructions" tabindex="0" role="img"></span>
+      <span id="contextTools" class="context-segment cw-tools" tabindex="0" role="img"></span>
+      <span id="contextHistory" class="context-segment cw-context" tabindex="0" role="img"></span>
+    </div>
+    <div class="context-legend" aria-label="범례">
+      <span id="legendInstructions" tabindex="0"><i class="cw-instructions" aria-hidden="true"></i>Instructions <b></b></span>
+      <span id="legendTools" tabindex="0"><i class="cw-tools" aria-hidden="true"></i>Tools <b></b></span>
+      <span id="legendContext" tabindex="0"><i class="cw-context" aria-hidden="true"></i>Context <b></b></span>
+    </div>
+    <p class="hint context-note" id="contextNote" aria-live="polite"></p>
+    <div id="contextTooltip" class="context-tooltip" role="tooltip" hidden></div>
+    </section>
+    <section class="card active-tools-card">
+      <div class="card-head"><h2>모델에 제공되는 도구</h2><span class="count" id="chipTools">0개</span></div>
+      <div id="activeToolList" class="active-tool-list"></div>
+      <button class="manage-link" id="goMcp">MCP 탭에서 관리 <span aria-hidden="true">→</span></button>
+    </section>
+  </aside>
+</main>
+
+<main class="panel mcp-layout" data-panel="mcp">
+  <section class="mcp-main-column">
+    <section class="card"><div class="card-head"><div><h2>MCP 서버</h2><span class="subtle">mcp_catalog.json · mcp_config.json</span></div></div><div id="mcpList" class="mcp-server-list"></div><p id="mcpNote" class="meta" aria-live="polite"></p></section>
+    <section class="card" id="mcpAddCard"><div class="card-head"><div><h2>원격 서버 추가</h2><span class="subtle">Streamable HTTP</span></div></div>
+      <form id="mcpAddForm" class="mcp-add">
+        <label for="mcpName">서버 이름</label><input id="mcpName" type="text" maxlength="40" placeholder="예: my-docs" autocomplete="off" required>
+        <label for="mcpUrl">서버 주소</label><input id="mcpUrl" type="text" inputmode="url" placeholder="https://example.com/mcp?key=${API_KEY}" autocomplete="off" required>
+        <div class="mcp-add-footer"><span>키는 URL에 <code>${변수명}</code>으로 지정하면 연결 시 .env에서 읽습니다.</span><button class="primary" id="mcpAdd" type="submit">추가</button></div>
+      </form>
+      <p id="mcpAddNote" class="meta" aria-live="polite"></p>
+    </section>
+  </section>
+  <section class="mcp-tools-column">
+    <section class="card"><div class="card-head"><h2>사용 가능한 도구</h2><span id="mergedCount" class="count">0개</span></div><div id="mergedTools" class="merged"></div></section>
+    <section class="card excluded-card"><div class="card-head"><div><h2>제외된 도구</h2><span class="subtle">이 앱에서 호출하지 않음</span></div></div><div id="excludedTools" class="excluded-tools"></div></section>
+  </section>
+</main>
+
+<main class="panel agents-layout" data-panel="agents">
+  <aside class="agents-sidebar">
+    <section class="card" id="processCard">
+      <div class="card-head"><div><h2>에이전트 상태</h2><span class="subtle">연구원 프로세스</span></div><button class="icon-button" id="agentsRefresh" aria-label="에이전트 상태 새로 고침" title="새로 고침">↻</button></div>
+      <div id="agentList"></div>
+      <div class="head-actions agent-actions"><button class="ghost" id="agentsStartAll">모두 시작</button><button class="ghost" id="agentsStopAll">모두 종료</button></div>
+    </section>
+    <section class="card" id="filesCard">
+      <div class="card-head"><div><h2>연구 자료</h2><span class="subtle">data/research/</span></div><label class="pick" for="fileInput" role="button" tabindex="0">파일 추가</label><input type="file" id="fileInput" accept=".csv,.txt,.json" multiple hidden></div>
+      <p class="hint">CSV · TXT · JSON, 파일당 2MB까지</p><div id="fileList" class="files"></div><div id="fileNote" class="meta" aria-live="polite"></div>
+    </section>
+    <details class="card graph-card" id="progressCard"><summary><span>역할 연결 상태</span></summary>
+    <svg id="graph" viewBox="0 0 640 240" role="img" aria-label="연구책임자와 두 연구원 사이의 통신">
+  <path class="wire-base" d="M 294.53 61.85 L 165.47 142.15"></path>
+  <path class="wire-base" d="M 345.47 61.85 L 474.53 142.15"></path>
+  <path class="wire-none" d="M 170 158 L 470 158"></path>
+  <rect class="wire-none-bg" x="254" y="145" width="132" height="25" rx="12"></rect>
+  <text class="wire-none-tx" x="320" y="162">직접 통신 없음</text>
+  <path id="flow" class="flow" d="" hidden></path>
+  <circle id="packet" class="packet" r="6" hidden></circle>
+  <g class="node" data-role="orchestrator">
+    <circle class="halo" cx="320" cy="46" r="30"></circle>
+    <circle class="disc" cx="320" cy="46" r="30"></circle>
+    <text class="tag" x="320" y="46">책임</text>
+    <text class="name" x="320" y="95">연구책임자</text>
+    <text class="sub" x="320" y="114" data-sub="orchestrator">상태 확인 중</text>
+  </g>
+  <g class="node" data-role="research">
+    <circle class="halo" cx="140" cy="158" r="30"></circle>
+    <circle class="disc" cx="140" cy="158" r="30"></circle>
+    <text class="tag" x="140" y="158">조사</text>
+    <text class="name" x="140" y="207">자료조사 연구원</text>
+    <text class="sub" x="140" y="226" data-sub="research">상태 확인 중</text>
+  </g>
+  <g class="node" data-role="experiment">
+    <circle class="halo" cx="500" cy="158" r="30"></circle>
+    <circle class="disc" cx="500" cy="158" r="30"></circle>
+    <text class="tag" x="500" y="158">실험</text>
+    <text class="name" x="500" y="207">실험수행 연구원</text>
+    <text class="sub" x="500" y="226" data-sub="experiment">상태 확인 중</text>
+  </g>
+</svg>
+    <div id="wire" class="wirebox" hidden><div class="wirebox-head"><span class="dir" id="wireDir"></span><span class="kind" id="wireKind"></span></div><pre id="wireText"></pre></div>
+    </details>
+  </section>
+  <section class="agents-main">
+    <section class="card research-card" id="requestCard">
+      <div class="card-head"><div><h2>연구 요청</h2><span class="subtle">연구책임자에게 요청</span></div></div>
+      <div class="qchips" id="questionChips"></div>
+      <label class="sr-only" for="question">연구 요청</label><textarea id="question" rows="5" placeholder="연구 질문과 조건을 입력하세요"></textarea>
+      <div class="runrow"><button class="primary" id="startResearch">연구 시작</button><button class="stop" id="stopResearch" disabled>중지</button></div><div id="researchNote" class="meta" aria-live="polite"></div>
+    </section>
+    <section class="card" id="followCard" hidden>
+      <div class="card-head"><div><h2>이어서 물어보기</h2><span class="subtle">기존 연구 문맥을 사용합니다</span></div><button class="ghost" id="resetSession">새 연구</button></div>
+      <div class="qchips" id="followChips"></div>
+      <label class="sr-only" for="followQuestion">후속 연구 요청</label><div class="ask"><input id="followQuestion" type="text" autocomplete="off" placeholder="조건을 바꾸거나 추가로 확인할 내용"><button class="primary" id="askFollow">이어서 질문</button></div>
+    </section>
+    <section class="card log-card" id="logCard"><div class="card-head"><div><h2>연구 진행</h2><span class="subtle">지시 · 보고 · 연구원 작업</span></div><div class="progress-actions"><span class="status" id="graphStatus" aria-live="polite">대기 중</span><button class="stop" id="stopResearchInline" hidden>중지</button></div></div><div id="researchLog" class="chat"></div></section>
+  </section>
+</main>
+
+<script src="/static/app.js?v=ui-cleanup-5"></script>
+</body>
+</html>

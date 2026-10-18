@@ -1,0 +1,9 @@
+{
+  "mslearn": {
+    "label": "Microsoft Learn 문서 서버",
+    "detail": "마이크로소프트가 운영하는 원격 서버입니다. 설치 없이 주소(url)로 연결합니다.",
+    "spec": {
+      "url": "https://learn.microsoft.com/api/mcp"
+    }
+  }
+}

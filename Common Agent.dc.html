@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#F4F3EF;color:#1C1B19;font-family:Pretendard,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#2F6F55}a:hover{color:#1F4F3C}
+textarea,input,button{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column">
+  <header style="display:flex;align-items:center;gap:28px;padding:0 28px;height:60px;border-bottom:1px solid #E3E0D8;background:#FBFAF7;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:22px;height:22px;border-radius:6px;background:#1C1B19;display:grid;place-items:center;color:#F4F3EF;font:500 12px 'JetBrains Mono',monospace">CA</div>
+      <div style="font-weight:700;font-size:15px;letter-spacing:-0.01em">Common Agent</div>
+    </div>
+    <nav style="display:flex;gap:4px">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+        <button onClick="{{ t.go }}" style="{{ t.style }}">{{ t.label }}</button>
+      </sc-for>
+    </nav>
+    <div style="margin-left:auto;display:flex;gap:16px;align-items:center;font:400 12px 'JetBrains Mono',monospace;color:#6B6860">
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:#3B9A6E"></span>127.0.0.1:8770</span>
+      <span>OPENROUTER_MODEL</span>
+    </div>
+  </header>
+
+  <sc-if value="{{ isTools }}" hint-placeholder-val="{{ true }}">
+    <main style="display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;padding:24px 28px;max-width:1360px;width:100%;box-sizing:border-box;margin:0 auto;flex:1">
+      <section style="display:flex;flex-direction:column;gap:16px;min-width:0">
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px">
+          <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #EEECE6;gap:8px">
+            <div style="font-weight:600;font-size:13px">역할 지시문</div>
+            <div style="font-size:12px;color:#8A877E">state/ 에 저장</div>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button onClick="{{ resetInstr }}" style="white-space:nowrap;flex-shrink:0;font-size:12px;padding:5px 10px;border:1px solid #E3E0D8;background:#fff;border-radius:6px;cursor:pointer;color:#4A4842">초기화</button>
+              <button style="white-space:nowrap;flex-shrink:0;font-size:12px;padding:5px 10px;border:1px solid #1C1B19;background:#1C1B19;color:#fff;border-radius:6px;cursor:pointer">저장</button>
+            </div>
+          </div>
+          <textarea value="{{ instr }}" onChange="{{ setInstr }}" style="width:100%;box-sizing:border-box;border:0;resize:vertical;min-height:72px;padding:12px 16px;font:400 13.5px/1.6 Pretendard,system-ui,sans-serif;color:#3A3833;outline:none;border-radius:0 0 10px 10px"></textarea>
+        </div>
+
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;display:flex;flex-direction:column;flex:1;min-height:440px">
+          <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #EEECE6">
+            <div style="font-weight:600;font-size:13px">대화</div>
+            <div style="margin-left:10px;font-size:12px;color:#8A877E">{{ turnLabel }}</div>
+            <button onClick="{{ clearChat }}" style="white-space:nowrap;flex-shrink:0;margin-left:auto;font-size:12px;padding:5px 10px;border:1px solid #E3E0D8;background:#fff;border-radius:6px;cursor:pointer;color:#4A4842">대화 초기화</button>
+          </div>
+          <div style="flex:1;padding:20px;display:flex;flex-direction:column;gap:18px;overflow:auto">
+            <sc-if value="{{ chatEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:auto;text-align:center;color:#8A877E;font-size:13px;line-height:1.7">저장된 대화가 없습니다.<br>요청을 보내면 최근 30턴까지 다음 요청의 문맥으로 이어집니다.</div>
+            </sc-if>
+            <sc-for list="{{ messages }}" as="m" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="font:500 11px 'JetBrains Mono',monospace;color:#8A877E;letter-spacing:0.04em">{{ m.who }}</div>
+                <div style="font-size:14px;line-height:1.7;color:#1C1B19;text-wrap:pretty">{{ m.text }}</div>
+                <sc-for list="{{ m.calls }}" as="c" hint-placeholder-count="0">
+                  <div style="border:1px solid #E6E3DA;background:#FAF9F5;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;gap:8px;align-items:center;font:500 12px 'JetBrains Mono',monospace">
+                      <span style="color:#2F6F55">●</span><span>{{ c.name }}</span><span style="color:#8A877E;font-weight:400">{{ c.src }}</span>
+                    </div>
+                    <div style="font:400 12px/1.6 'JetBrains Mono',monospace;color:#4A4842;white-space:pre-wrap">{{ c.result }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{ sending }}" hint-placeholder-val="{{ false }}">
+              <div style="font:400 12px 'JetBrains Mono',monospace;color:#8A877E">모델 응답 대기 중…</div>
+            </sc-if>
+          </div>
+          <div style="border-top:1px solid #EEECE6;padding:12px;display:flex;gap:8px">
+            <input value="{{ draft }}" onChange="{{ setDraft }}" onKeyDown="{{ draftKey }}" placeholder="요청을 입력하세요" style="flex:1;min-width:0;border:1px solid #E3E0D8;border-radius:8px;padding:10px 12px;font-size:14px;outline:none;background:#FBFAF7">
+            <button onClick="{{ send }}" style="white-space:nowrap;flex-shrink:0;padding:0 18px;border:0;border-radius:8px;background:#2F6F55;color:#fff;font-weight:600;font-size:13px;cursor:pointer">보내기</button>
+          </div>
+        </div>
+      </section>
+
+      <aside style="display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:baseline">
+            <div style="font-weight:600;font-size:13px">Context Window</div>
+            <div style="margin-left:auto;font:500 12px 'JetBrains Mono',monospace">{{ ctxTotal }}</div>
+          </div>
+          <div style="height:10px;border-radius:5px;background:#EFEDE7;display:flex;overflow:hidden">
+            <div style="width:{{ ctxW.i }};background:#1C1B19"></div>
+            <div style="width:{{ ctxW.t }};background:#2F6F55"></div>
+            <div style="width:{{ ctxW.c }};background:#9CC3AE"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+            <sc-for list="{{ ctxRows }}" as="r" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span>
+                <span>{{ r.label }}</span>
+                <span style="margin-left:auto;font:400 12px 'JetBrains Mono',monospace;color:#6B6860">{{ r.val }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:11.5px;line-height:1.6;color:#8A877E;border-top:1px solid #EEECE6;padding-top:10px">{{ ctxNote }}</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:baseline">
+            <div style="font-weight:600;font-size:13px">모델에 제공되는 도구</div>
+            <div style="margin-left:auto;font-size:12px;color:#8A877E">{{ toolCount }}개</div>
+          </div>
+          <sc-for list="{{ activeTools }}" as="t" hint-placeholder-count="4">
+            <div style="display:flex;gap:8px;font:400 12px 'JetBrains Mono',monospace;align-items:center">
+              <span>{{ t.name }}</span><span style="margin-left:auto;color:#8A877E">{{ t.server }}</span>
+            </div>
+          </sc-for>
+          <button onClick="{{ goMcp }}" style="white-space:nowrap;flex-shrink:0;margin-top:4px;font-size:12px;padding:7px;border:1px dashed #D6D2C7;background:transparent;border-radius:6px;cursor:pointer;color:#4A4842">MCP 탭에서 관리</button>
+        </div>
+      </aside>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isMcp }}" hint-placeholder-val="{{ false }}">
+    <main style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;padding:24px 28px;max-width:1360px;width:100%;box-sizing:border-box;margin:0 auto">
+      <section style="display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px">
+          <div style="padding:14px 16px;border-bottom:1px solid #EEECE6;display:flex;align-items:baseline;gap:8px">
+            <div style="font-weight:600;font-size:13px">MCP 서버</div>
+            <div style="font-size:12px;color:#8A877E">mcp_catalog.json · mcp_config.json</div>
+          </div>
+          <sc-for list="{{ servers }}" as="s" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #F1EFEA">
+              <span style="width:8px;height:8px;border-radius:50%;background:{{ s.dot }}"></span>
+              <div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1">
+                <div style="display:flex;gap:8px;align-items:center"><span style="font-weight:600;font-size:14px">{{ s.name }}</span><span style="font-size:11px;padding:1px 6px;border-radius:4px;background:#F1EFEA;color:#6B6860">{{ s.kind }}</span></div>
+                <div style="font:400 11.5px 'JetBrains Mono',monospace;color:#8A877E;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.url }}</div>
+              </div>
+              <sc-if value="{{ s.custom }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ s.remove }}" style="white-space:nowrap;flex-shrink:0;font-size:12px;padding:5px 9px;border:0;background:transparent;color:#A3532B;cursor:pointer">삭제</button>
+              </sc-if>
+              <button onClick="{{ s.toggle }}" style="{{ s.btnStyle }}">{{ s.btn }}</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px">
+          <div style="font-weight:600;font-size:13px">원격 서버 추가 <span style="font-weight:400;color:#8A877E;font-size:12px">Streamable HTTP</span></div>
+          <input value="{{ newName }}" onChange="{{ setNewName }}" placeholder="서버 이름" style="border:1px solid #E3E0D8;border-radius:8px;padding:9px 12px;font-size:13px;outline:none;background:#FBFAF7">
+          <input value="{{ newUrl }}" onChange="{{ setNewUrl }}" placeholder="https://example.com/mcp?key=${EXAMPLE_API_KEY}" style="border:1px solid #E3E0D8;border-radius:8px;padding:9px 12px;font:400 12.5px 'JetBrains Mono',monospace;outline:none;background:#FBFAF7">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:12px;line-height:1.6;color:#8A877E;flex:1">키는 URL에 <code style="font-family:'JetBrains Mono',monospace;color:#4A4842">${변수명}</code>으로 지정하면 연결 시 .env에서 읽습니다.</div>
+            <button onClick="{{ addServer }}" style="white-space:nowrap;flex-shrink:0;padding:8px 16px;border:0;border-radius:8px;background:#1C1B19;color:#fff;font-size:13px;font-weight:600;cursor:pointer">추가</button>
+          </div>
+        </div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:16px">
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px">
+          <div style="padding:14px 16px;border-bottom:1px solid #EEECE6;display:flex;align-items:baseline">
+            <div style="font-weight:600;font-size:13px">사용 가능한 도구</div>
+            <div style="margin-left:auto;font-size:12px;color:#8A877E">{{ toolCount }}개</div>
+          </div>
+          <sc-for list="{{ toolRows }}" as="t" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #F1EFEA">
+              <span style="font:500 13px 'JetBrains Mono',monospace">{{ t.name }}</span>
+              <span style="font-size:12px;color:#8A877E">{{ t.server }}</span>
+              <sc-if value="{{ t.builtin }}" hint-placeholder-val="{{ false }}">
+                <span style="margin-left:auto;font-size:11px;color:#8A877E">내장</span>
+              </sc-if>
+              <sc-if value="{{ t.removable }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ t.exclude }}" style="white-space:nowrap;flex-shrink:0;margin-left:auto;font-size:12px;padding:4px 9px;border:1px solid #E3E0D8;background:#fff;border-radius:6px;cursor:pointer;color:#4A4842">제외</button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="background:#FBFAF7;border:1px dashed #CFCABD;border-radius:10px">
+          <div style="padding:14px 16px;display:flex;align-items:baseline;gap:8px;border-bottom:1px dashed #DDD8CC">
+            <div style="font-weight:600;font-size:13px">제외된 도구</div>
+            <span style="font-size:11px;padding:1px 6px;border-radius:4px;background:#E8F0EB;color:#2F6F55">P2 제안</span>
+            <div style="margin-left:auto;font:400 11.5px 'JetBrains Mono',monospace;color:#8A877E">state/disabled_mcp_tools.json</div>
+          </div>
+          <sc-if value="{{ noExcluded }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:16px;font-size:13px;color:#8A877E">제외된 도구가 없습니다.</div>
+          </sc-if>
+          <sc-for list="{{ excludedRows }}" as="t" hint-placeholder-count="1">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #EEEBE3">
+              <span style="font:500 13px 'JetBrains Mono',monospace;color:#6B6860;text-decoration:line-through">{{ t.name }}</span>
+              <span style="font-size:12px;color:#8A877E">{{ t.server }}</span>
+              <button onClick="{{ t.restore }}" style="white-space:nowrap;flex-shrink:0;margin-left:auto;font-size:12px;padding:4px 9px;border:1px solid #2F6F55;background:#fff;border-radius:6px;cursor:pointer;color:#2F6F55">복원</button>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ isAgent }}" hint-placeholder-val="{{ false }}">
+    <main style="display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;padding:24px 28px;max-width:1360px;width:100%;box-sizing:border-box;margin:0 auto">
+      <aside style="display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ agents }}" as="a" hint-placeholder-count="3">
+          <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-weight:600;font-size:14px">{{ a.name }}</span>
+              <span style="margin-left:auto;font:400 11.5px 'JetBrains Mono',monospace;color:#8A877E">{{ a.port }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12.5px"><span style="width:7px;height:7px;border-radius:50%;background:{{ a.dot }}"></span><span style="color:{{ a.dot }};font-weight:600">{{ a.status }}</span></div>
+            <div style="font:400 12px/1.6 Pretendard,system-ui,sans-serif;color:#6B6860">{{ a.tools }}</div>
+          </div>
+        </sc-for>
+        <div style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:baseline"><span style="font-weight:600;font-size:13px">연구 자료</span><span style="margin-left:auto;font:400 11.5px 'JetBrains Mono',monospace;color:#8A877E">data/research/</span></div>
+          <sc-for list="{{ files }}" as="f" hint-placeholder-count="2">
+            <div style="display:flex;font:400 12px 'JetBrains Mono',monospace"><span>{{ f.name }}</span><span style="margin-left:auto;color:#8A877E">{{ f.size }}</span></div>
+          </sc-for>
+          <button onClick="{{ upload }}" style="white-space:nowrap;flex-shrink:0;font-size:12px;padding:8px;border:1px dashed #D6D2C7;background:transparent;border-radius:6px;cursor:pointer;color:#4A4842">파일 업로드 · CSV/TXT/JSON · 2MB</button>
+        </div>
+      </aside>
+
+      <section style="background:#fff;border:1px solid #E3E0D8;border-radius:10px;display:flex;flex-direction:column;min-height:620px;min-width:0">
+        <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #EEECE6;gap:10px">
+          <div style="font-weight:600;font-size:13px">연구 진행</div>
+          <div style="font:400 12px 'JetBrains Mono',monospace;color:#8A877E">{{ phaseLabel }}</div>
+          <sc-if value="{{ running }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ stop }}" style="white-space:nowrap;flex-shrink:0;margin-left:auto;font-size:12px;padding:5px 12px;border:1px solid #A3532B;background:#fff;color:#A3532B;border-radius:6px;cursor:pointer">중지</button>
+          </sc-if>
+        </div>
+        <sc-if value="{{ stopping }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:10px 16px;background:#FBF3EC;border-bottom:1px solid #F0E1D3;font-size:12.5px;color:#7A4120;line-height:1.6">중지 요청됨. 이미 실행 중인 연구원 호출은 끝날 때까지 기다리며, 다음 단계는 시작하지 않습니다.</div>
+        </sc-if>
+        <div style="flex:1;padding:20px;display:flex;flex-direction:column;gap:0;overflow:auto">
+          <sc-if value="{{ logEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="margin:auto;text-align:center;color:#8A877E;font-size:13px;line-height:1.7">연구 질문을 보내면 연구책임자가 연구원에게 한 번에 하나씩 일을 위임합니다.</div>
+          </sc-if>
+          <sc-for list="{{ log }}" as="l" hint-placeholder-count="3">
+            <div style="display:grid;grid-template-columns:56px 18px minmax(0,1fr);gap:10px;padding-bottom:16px">
+              <div style="font:400 11.5px 'JetBrains Mono',monospace;color:#8A877E;padding-top:2px">{{ l.time }}</div>
+              <div style="display:flex;flex-direction:column;align-items:center"><span style="width:9px;height:9px;border-radius:50%;margin-top:4px;background:{{ l.dot }}"></span><span style="flex:1;width:1px;background:#E6E3DA;margin-top:4px"></span></div>
+              <div style="display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-weight:600;font-size:13.5px">{{ l.title }}</span><span style="font:400 11.5px 'JetBrains Mono',monospace;color:#6B6860">{{ l.tag }}</span></div>
+                <div style="font-size:13px;line-height:1.65;color:#4A4842;text-wrap:pretty">{{ l.body }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border-top:1px solid #EEECE6;padding:12px;display:flex;gap:8px">
+          <input value="{{ rDraft }}" onChange="{{ setRDraft }}" placeholder="{{ rPlaceholder }}" style="flex:1;min-width:0;border:1px solid #E3E0D8;border-radius:8px;padding:10px 12px;font-size:14px;outline:none;background:#FBFAF7">
+          <button onClick="{{ startResearch }}" style="white-space:nowrap;flex-shrink:0;padding:0 18px;border:0;border-radius:8px;background:#2F6F55;color:#fff;font-weight:600;font-size:13px;cursor:pointer">{{ rBtn }}</button>
+        </div>
+      </section>
+    </main>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  DEF_INSTR = '너는 연결된 도구를 사용해 사용자의 요청을 처리하는 도우미다. 도구 결과를 근거로 짧고 정확하게 답한다.';
+  state = {
+    tab: 'tools', instr: this.DEF_INSTR, draft: '', sending: false,
+    messages: [
+      { who: 'USER', text: '오늘 회의 메모에 “MCP 복원 UI 검토”를 추가해줘.', calls: [] },
+      { who: 'ASSISTANT', text: '메모에 항목을 추가했습니다. 현재 메모는 3건입니다.', calls: [{ name: 'memo_add', src: '내장', result: '{"ok": true, "count": 3}' }] }
+    ],
+    servers: [
+      { id: 'fetch', name: 'fetch', kind: '카탈로그', url: 'https://mcp.example/fetch', on: true },
+      { id: 'search', name: 'web-search', kind: '카탈로그', url: 'https://mcp.example/search?key=${SEARCH_API_KEY}', on: true },
+      { id: 'files', name: 'filesystem', kind: '카탈로그', url: 'https://mcp.example/fs', on: false }
+    ],
+    tools: [
+      { name: 'memo_add', server: '내장', builtin: true },
+      { name: 'memo_list', server: '내장', builtin: true },
+      { name: 'fetch_url', server: 'fetch' },
+      { name: 'search', server: 'web-search' },
+      { name: 'search_news', server: 'web-search' },
+      { name: 'read_file', server: 'filesystem' }
+    ],
+    excluded: [{ name: 'fetch_raw', server: 'fetch' }],
+    newName: '', newUrl: '',
+    phase: 'idle', stopping: false, rDraft: '', log: [], sessionTurns: 0,
+    files: [{ name: 'line_events.csv', size: '412 KB' }, { name: 'notes.txt', size: '8 KB' }]
+  };
+  timers = [];
+  componentWillUnmount() { this.timers.forEach(clearTimeout); }
+  later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
+  now() { const d = new Date(); return d.toTimeString().slice(0, 8); }
+  pushLog(e) { this.setState(s => ({ log: [...s.log, { time: this.now(), ...e }] })); }
+
+  send = () => {
+    const t = this.state.draft.trim(); if (!t || this.state.sending) return;
+    this.setState(s => ({ draft: '', sending: true, messages: [...s.messages, { who: 'USER', text: t, calls: [] }] }));
+    this.later(1100, () => this.setState(s => ({ sending: false, messages: [...s.messages, { who: 'ASSISTANT', text: '검색 결과를 바탕으로 정리했습니다. 관련 문서 2건을 찾았습니다.', calls: [{ name: 'search', src: 'web-search', result: '[{"title": "…", "url": "…"}, {"title": "…", "url": "…"}]' }] }] })));
+  };
+
+  startResearch = () => {
+    const q = this.state.rDraft.trim() || 'line_events.csv에서 정지 이벤트가 몰리는 시간대를 찾아줘';
+    if (this.state.phase === 'running') return;
+    this.timers.forEach(clearTimeout); this.timers = [];
+    const follow = this.state.log.length > 0;
+    this.setState(s => ({ phase: 'running', stopping: false, rDraft: '', sessionTurns: s.sessionTurns + 1 }));
+    this.pushLog({ title: follow ? '이어서 질문' : '연구 요청', tag: follow ? '기존 세션 문맥 재사용' : '/api/research', body: q, dot: '#1C1B19' });
+    const steps = [
+      [900, { title: '연구책임자 → 자료조사', tag: 'delegate_research', body: '정지 이벤트 정의와 일반적인 분석 기준을 조사해 달라.', dot: '#2F6F55' }, { lead: '위임 중', res: '작업 중' }],
+      [2200, { title: '자료조사 → 연구책임자', tag: '반환', body: '정지 이벤트는 status=STOP 구간으로 정의. 시간대별 빈도 집계를 권장.', dot: '#9CC3AE' }, { lead: '검토 중', res: '대기' }],
+      [3200, { title: '연구책임자 → 실험수행', tag: 'delegate_experiment', body: 'line_events.csv를 읽어 시간대별 STOP 건수를 집계하라.', dot: '#2F6F55' }, { lead: '위임 중', exp: '작업 중' }],
+      [4700, { title: '실험수행 → 연구책임자', tag: 'run_python · 1.8s', body: '14시–16시 구간 STOP 128건, 전체의 31%.', dot: '#9CC3AE' }, { lead: '검토 중', exp: '대기' }],
+      [5600, { title: '최종 답변', tag: '연구책임자', body: '정지 이벤트는 14시–16시에 가장 많이 발생합니다(전체의 31%). 교대 시간과의 연관을 추가로 확인할 수 있습니다.', dot: '#1C1B19' }, null]
+    ];
+    steps.forEach(([ms, e, st]) => this.later(ms, () => {
+      if (this.state.stopping) { if (!this.state._stopLogged) { this.pushLog({ title: '중지됨', tag: '다음 단계 차단', body: '진행 중이던 호출이 끝난 뒤 세션을 멈췄습니다. 이어서 질문하면 기존 문맥에서 다시 시작합니다.', dot: '#A3532B' }); this.setState({ _stopLogged: true, phase: 'stopped', agentSt: null }); } return; }
+      this.pushLog(e); this.setState({ agentSt: st, phase: st ? 'running' : 'done' });
+    }));
+  };
+  stop = () => this.setState({ stopping: true, _stopLogged: false });
+
+  renderVals() {
+    const s = this.state;
+    const tabBase = 'white-space:nowrap;padding:7px 14px;border-radius:7px;border:0;cursor:pointer;font-size:13.5px;';
+    const toStyle = css => Object.fromEntries(css.split(';').filter(Boolean).map(p => { const [k, ...v] = p.split(':'); return [k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v.join(':').trim()]; }));
+    const tabs = [['tools', '도구'], ['mcp', 'MCP'], ['agent', '에이전트']].map(([id, label]) => ({
+      label, go: () => this.setState({ tab: id }),
+      style: toStyle(tabBase + (s.tab === id ? 'background:#1C1B19;color:#fff;font-weight:600' : 'background:transparent;color:#4A4842;font-weight:500'))
+    }));
+    const onServers = new Set(s.servers.filter(x => x.on).map(x => x.name));
+    const exKey = new Set(s.excluded.map(t => t.server + '/' + t.name));
+    const active = s.tools.filter(t => (t.builtin || onServers.has(t.server)) && !exKey.has(t.server + '/' + t.name));
+    const turns = s.messages.filter(m => m.who === 'USER').length;
+    const instrK = Math.round(s.instr.length / 3.2) / 1000 + 0.4;
+    const toolsK = active.length * 0.42;
+    const ctxK = s.messages.reduce((a, m) => a + m.text.length, 0) / 2.5 / 1000 * 4 + (s.sending ? 0.3 : 0);
+    const win = 128;
+    const pct = v => (v / win * 100 * 6).toFixed(1) + '%';
+    const fmt = v => v.toFixed(1) + 'K';
+    const ag = s.agentSt || {};
+    const running = s.phase === 'running';
+    const agents = [
+      { name: '연구책임자', port: ':8770', st: ag.lead || (running ? '대기' : '유휴'), tools: 'delegate_research · delegate_experiment' },
+      { name: '자료조사 연구원', port: ':8771', st: ag.res || (running ? '대기' : '유휴'), tools: 'MCP 도구 · 웹 검색' },
+      { name: '실험수행 연구원', port: ':8772', st: ag.exp || (running ? '대기' : '유휴'), tools: 'run_python · read_data_file' }
+    ].map(a => ({ ...a, status: a.st, dot: a.st === '작업 중' || a.st === '위임 중' ? '#2F6F55' : a.st === '검토 중' ? '#B07A1E' : '#8A877E' }));
+    const phaseLabel = { idle: '대기', running: '진행 중', done: '완료', stopped: '중지됨' }[s.phase];
+    return {
+      tabs, isTools: s.tab === 'tools', isMcp: s.tab === 'mcp', isAgent: s.tab === 'agent',
+      goMcp: () => this.setState({ tab: 'mcp' }),
+      instr: s.instr, setInstr: e => this.setState({ instr: e.target.value }), resetInstr: () => this.setState({ instr: this.DEF_INSTR }),
+      messages: s.messages, chatEmpty: s.messages.length === 0, sending: s.sending,
+      turnLabel: `${turns} / 30턴 · state/chat_history.json`,
+      clearChat: () => this.setState({ messages: [] }),
+      draft: s.draft, setDraft: e => this.setState({ draft: e.target.value }), draftKey: e => { if (e.key === 'Enter') this.send(); }, send: this.send,
+      ctxTotal: `${fmt(instrK + toolsK + ctxK)} / ${win}K`,
+      ctxW: { i: pct(instrK), t: pct(toolsK), c: pct(ctxK) },
+      ctxRows: [
+        { label: 'Instructions', color: '#1C1B19', val: fmt(instrK) },
+        { label: 'Tools', color: '#2F6F55', val: fmt(toolsK) },
+        { label: 'Context', color: '#9CC3AE', val: fmt(ctxK) }
+      ],
+      ctxNote: s.sending ? '진행 중: 텍스트 길이 기반 추정값. 항목별 수치는 토크나이저 측정값이 아닙니다.' : 'API 토큰 사용량 반영. 항목별 수치는 추정값이며 토크나이저 측정값이 아닙니다.',
+      activeTools: active, toolCount: active.length,
+      servers: s.servers.map(x => ({
+        ...x, dot: x.on ? '#3B9A6E' : '#C9C5BA', btn: x.on ? '해제' : '연결',
+        btnStyle: x.on ? { whiteSpace: 'nowrap', flexShrink: 0, fontSize: 12, padding: '6px 12px', border: '1px solid #E3E0D8', background: '#fff', borderRadius: 6, cursor: 'pointer', color: '#4A4842', minWidth: 56 } : { whiteSpace: 'nowrap', flexShrink: 0, fontSize: 12, padding: '6px 12px', border: '1px solid #2F6F55', background: '#2F6F55', borderRadius: 6, cursor: 'pointer', color: '#fff', minWidth: 56 },
+        toggle: () => this.setState(st => ({ servers: st.servers.map(y => y.id === x.id ? { ...y, on: !y.on } : y) })),
+        remove: () => this.setState(st => ({ servers: st.servers.filter(y => y.id !== x.id) }))
+      })),
+      newName: s.newName, newUrl: s.newUrl,
+      setNewName: e => this.setState({ newName: e.target.value }), setNewUrl: e => this.setState({ newUrl: e.target.value }),
+      addServer: () => { const n = s.newName.trim(); if (!n) return; this.setState(st => ({ newName: '', newUrl: '', servers: [...st.servers, { id: n + Date.now(), name: n, kind: '사용자', url: st.newUrl || 'https://…', on: true, custom: true }], tools: [...st.tools, { name: n + '_query', server: n }] })); },
+      toolRows: active.map(t => ({ ...t, removable: !t.builtin, exclude: () => this.setState(st => ({ excluded: [...st.excluded, { name: t.name, server: t.server }] })) })),
+      excludedRows: s.excluded.map((t, i) => ({ ...t, restore: () => this.setState(st => ({ excluded: st.excluded.filter((_, j) => j !== i) })) })),
+      noExcluded: s.excluded.length === 0,
+      agents, files: s.files,
+      upload: () => this.setState(st => ({ files: [...st.files, { name: `upload_${st.files.length + 1}.json`, size: '96 KB' }] })),
+      log: s.log, logEmpty: s.log.length === 0, running, stopping: s.stopping && running,
+      phaseLabel, stop: this.stop,
+      rDraft: s.rDraft, setRDraft: e => this.setState({ rDraft: e.target.value }), startResearch: this.startResearch,
+      rPlaceholder: s.log.length ? '이어서 질문하기 (기존 세션 문맥 사용)' : '연구 질문을 입력하세요',
+      rBtn: s.log.length ? '이어서 질문' : '연구 시작'
+    };
+  }
+}
+</script>
+</body>
+</html>
