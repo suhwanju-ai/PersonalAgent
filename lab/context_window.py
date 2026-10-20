@@ -24,6 +24,7 @@ def estimate(value):
 
 
 def measure(prompt, items, declarations, usage=None, phase="ready", step=0, output_items=None):
+    settings = config.llm_settings()
     parts = [estimate(prompt), estimate(llm._function_tools(declarations)), estimate(items)]
     usage = usage or {}
     reported = all(isinstance(usage.get(k), int) and not isinstance(usage[k], bool)
@@ -40,7 +41,8 @@ def measure(prompt, items, declarations, usage=None, phase="ready", step=0, outp
     elif output_items:
         parts[2] = estimate(list(items) + list(output_items))
     return {
-        "model": config.GEN_MODEL,
+        "model": settings["model"],
+        "provider": settings["provider"],
         "limit": config.CONTEXT_WINDOW_TOKENS,
         "total": sum(parts),
         "parts": dict(zip(("instructions", "tools", "context"), parts)),
@@ -62,7 +64,7 @@ class Meter:
         history(저장된 대화)는 서명에 넣지 않는다. 넣으면 대화가 끝날 때마다 서명이 바뀌어
         화면을 새로 고칠 때 API 실측값이 추정값으로 덮인다. 대화를 비울 때는 invalidate()를 부른다.
         """
-        signature = json.dumps([config.GEN_MODEL, config.CONTEXT_WINDOW_TOKENS,
+        signature = json.dumps([config.llm_settings(), config.CONTEXT_WINDOW_TOKENS,
                                 prompt, declarations], ensure_ascii=False, sort_keys=True)
         with self._lock:
             if signature != self._signature:

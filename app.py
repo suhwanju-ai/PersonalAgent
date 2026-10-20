@@ -24,7 +24,8 @@ CONTEXT_METER = context_window.Meter()
 MAX_BODY = 8 * 1024 * 1024            # 파일을 base64로 실어 보내므로 상한을 둔다
 
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-        ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml"}
+        ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml",
+        ".png": "image/png", ".ico": "image/x-icon", ".json": "application/manifest+json; charset=utf-8"}
 
 
 # ── 상태 ──────────────────────────────────────────────────────────────
@@ -102,6 +103,7 @@ def state():
         "prompt": runner.system_prompt(),
         "prompt_default": runner.DEFAULT_SYSTEM_PROMPT,
         "prompt_edited": os.path.exists(config.SYSTEM_PROMPT_PATH),
+        "llm_settings": config.llm_settings(),
         "research_files": datafile.listing_detail(),
         "errors": errors,
         "mcp": {
@@ -139,7 +141,16 @@ def handle_chat(payload):
             return {"ok": False,
                     "message": ".env 파일에 키가 없습니다. OPENROUTER_API_KEY를 확인해 주세요."}
         return {"ok": False, "message": "처리 중 문제가 생겼습니다."}
-    except llm.LLMError:
+    except llm.LLMError as exc:
+        if config.llm_settings()["provider"] == "ollama":
+            # LLMError 메시지는 "network: ..." 또는 "HTTP <코드> ..."이고 키를 담지 않는다.
+            if str(exc).startswith("network:"):
+                message = ("앱 서버에서 Ollama에 연결하지 못했습니다. Ollama 서버 주소와 "
+                           "운영 서버에서의 네트워크 접근을 확인해 주세요.")
+            else:
+                message = ("Ollama가 요청을 거부했습니다(%s). 모델 이름이 맞는지, "
+                           "도구 호출을 지원하는 모델인지 확인해 주세요." % exc)
+            return {"ok": False, "message": message}
         return {"ok": False, "message": "응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요."}
     finally:
         CONTEXT_METER.finish(failed=failed)
@@ -184,6 +195,19 @@ def _chat_reset(_p):
     runner.clear_chat()
     CONTEXT_METER.invalidate()          # 다음 /api/state가 기록 없이 다시 잰다
     return {"ok": True}
+
+
+@route("/api/llm/settings")
+def _llm_settings_save(p):
+    try:
+        settings = config.save_llm_settings(p)
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    except OSError:
+        return {"ok": False,
+                "message": "설정을 디스크에 저장하지 못했습니다. 배포 환경에서 state/ 폴더에 쓰기 권한과 영구 저장 공간이 있는지 확인해 주세요."}
+    CONTEXT_METER.invalidate()
+    return {"ok": True, "settings": settings}
 
 
 @route("/api/prompt")
@@ -387,18 +411,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass                                    # 콘솔을 깨끗하게 둔다
 
-    def _send(self, code, body, content_type):
+    def _send(self, code, body, content_type, headers=None):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
-    def _json(self, payload, code=200):
+    def _json(self, payload, code=200, headers=None):
         self._send(code, json.dumps(payload, ensure_ascii=False),
-                   "application/json; charset=utf-8")
+                   "application/json; charset=utf-8", headers)
 
     def _static(self, name):
         path = os.path.join(STATIC, os.path.basename(name))
@@ -411,9 +437,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            http_security.validate_local_host(self, config.PORT)
+            http_security.validate_local_host(
+                self, config.PORT, config.trusted_origins(), config.access_token(),
+            )
         except http_security.RequestRejected as exc:
-            self._send(exc.status, str(exc), "text/plain; charset=utf-8")
+            self._send(exc.status, str(exc), "text/plain; charset=utf-8", exc.headers)
             return
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
@@ -444,10 +472,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = http_security.validate_json_post(
                 self, port=config.PORT, max_body=MAX_BODY,
+                trusted_origins=config.trusted_origins(),
+                access_token=config.access_token(),
             )
             payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
         except http_security.RequestRejected as exc:
-            self._json({"ok": False, "message": str(exc)}, exc.status)
+            self._json({"ok": False, "message": str(exc)}, exc.status, exc.headers)
             return
         except (ValueError, UnicodeDecodeError):
             self._json({"ok": False, "message": "요청을 읽지 못했습니다."}, 400)

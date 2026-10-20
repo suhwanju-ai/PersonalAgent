@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""OpenRouter Chat Completions API 호출 (표준 라이브러리만 사용).
+"""OpenAI-compatible Chat Completions providers (standard library only).
 
 앱 대화 항목을 OpenRouter messages/tools 형식으로 변환한다.
 """
@@ -11,7 +11,7 @@ import urllib.request
 
 from . import config
 
-BASE = config.OPENROUTER_BASE
+OLLAMA_TIMEOUT = 600        # 로컬 모델은 첫 요청에서 모델을 올리느라 오래 걸릴 수 있다
 
 
 class QuotaExceeded(Exception):
@@ -29,13 +29,23 @@ def _message(detail):
         return detail
 
 
-def _post(payload, timeout=150, retries=1):
-    url = "%s/chat/completions" % BASE
+def _endpoint(settings):
+    base = (config.OPENROUTER_BASE if settings["provider"] == "openrouter"
+            else settings["ollama_base_url"])
+    return "%s/chat/completions" % base.rstrip("/")
+
+
+def _post(payload, settings, timeout=None, retries=1):
+    local = settings["provider"] == "ollama"
+    if timeout is None:
+        timeout = OLLAMA_TIMEOUT if local else 150
+    url = _endpoint(settings)
     body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json",
-               "Authorization": "Bearer %s" % config.api_key(),
-               "HTTP-Referer": "http://localhost",
-               "X-Title": "Common Agent"}
+    headers = {"Content-Type": "application/json"}
+    if settings["provider"] == "openrouter":
+        headers.update({"Authorization": "Bearer %s" % config.api_key(),
+                        "HTTP-Referer": "http://localhost",
+                        "X-Title": "Common Agent"})
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
@@ -50,7 +60,9 @@ def _post(payload, timeout=150, retries=1):
                 continue
             raise LLMError("HTTP %d %s" % (e.code, detail))
         except (urllib.error.URLError, OSError) as e:
-            if attempt < retries:
+            # 로컬 모델이 시간 초과면 같은 요청을 다시 보내도 같은 시간을 또 쓴다.
+            timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
+            if attempt < retries and not (local and timed_out):
                 time.sleep(2.0)
                 continue
             raise LLMError("network: %s" % (getattr(e, "reason", None) or e.__class__.__name__,))
@@ -108,22 +120,23 @@ def _function_tools(declarations):
 
 def call(system_prompt, items, declarations, web_search=False, temperature=None, trace=None):
     """한 턴을 호출하고 앱 내부 Responses 스타일 출력 항목으로 돌려준다."""
-    payload = {"model": config.GEN_MODEL, "messages": _messages(system_prompt, items),
+    settings = config.llm_settings()
+    payload = {"model": settings["model"], "messages": _messages(system_prompt, items),
                "temperature": config.TEMPERATURE if temperature is None else temperature,
                "stream": False}
     tools = _function_tools(declarations)
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
-    if web_search:
+    if web_search and settings["provider"] == "openrouter":
         # OpenRouter의 :online 라우팅은 tool calling과 동시 사용이 제한될 수 있으므로
         # 검색을 웹 검색 전용 tool로 요청한다.
         payload["plugins"] = [{"id": "web", "engine": "native"}]
 
     started = time.time()
-    data = _post(payload, retries=1)
+    data = _post(payload, settings, retries=1)
     if trace is not None:
-        trace.append({"url": "%s/chat/completions" % BASE,
+        trace.append({"url": _endpoint(settings),
                       "request": json.loads(json.dumps(payload)), "response": data,
                       "elapsed": round(time.time() - started, 2)})
 
