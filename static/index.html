@@ -158,6 +158,14 @@
       <label class="sr-only" for="question">연구 요청</label><textarea id="question" rows="5" placeholder="연구 질문과 조건을 입력하세요"></textarea>
       <div class="runrow"><button class="primary" id="startResearch">연구 시작</button><button class="stop" id="stopResearch" disabled>중지</button></div><div id="researchNote" class="meta" aria-live="polite"></div>
     </section>
+    <section class="card prompt-card" id="rolePromptCard">
+      <div class="card-head"><div><h2>연구원 지침</h2><span class="subtle" id="rolePromptState">state/ 에 저장</span></div>
+        <div class="head-actions"><label class="sr-only" for="rolePromptRole">지침을 고칠 연구원</label><select id="rolePromptRole"></select><button class="ghost" id="resetRolePrompt">기본값으로</button><button class="primary compact" id="saveRolePrompt">저장</button></div></div>
+      <label for="rolePrompt" class="sr-only">선택한 연구원이 작업할 때 따르는 지침</label>
+      <textarea id="rolePrompt" rows="12" maxlength="20000" spellcheck="false"></textarea>
+      <p class="hint role-prompt-hint">저장하면 다음 위임부터 적용됩니다(연구원을 다시 띄울 필요 없음). 지침에는 역할 경계와 보고 규칙(실행하지 않은 수치를 만들지 않기 등)이 들어 있으니, 줄이거나 지울 때 확인하세요.</p>
+      <div id="rolePromptNote" class="meta role-prompt-note" aria-live="polite"></div>
+    </section>
     <section class="card" id="followCard" hidden>
       <div class="card-head"><div><h2>이어서 물어보기</h2><span class="subtle">기존 연구 문맥을 사용합니다</span></div><button class="ghost" id="resetSession">새 연구</button></div>
       <div class="qchips" id="followChips"></div>

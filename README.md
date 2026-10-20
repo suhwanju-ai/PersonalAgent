@@ -88,7 +88,7 @@ agents/experiment_agent.py  실험수행 연구원 (:8772) — read_data_file (�
 
 data/notes.json             메모 데이터. 화면의 초기화 버튼이 seed/notes.json으로 되돌린다
 data/research/line_transition.csv   연구 자료 (신규 공정 라인 전환의 사업 가정, 가상)
-state/                      역할 문구, 기존 데이터 경로 설정,
+state/                      역할 문구, 연구원 지침 role_prompts.json, 기존 데이터 경로 설정,
                             도구 탭 대화 기록 chat_history.json,
                             MCP 탭에서 주소로 추가한 서버 mcp_custom.json
 static/                     index.html · app.js · style.css
@@ -113,6 +113,11 @@ static/                     index.html · app.js · style.css
   실행 도구를 볼 수 없고 실행 담당은 조사 도구를 볼 수 없습니다. 연구원끼리는 서로를
   부를 수단이 없습니다. 위임은 function call이라 지시문 원문과 반환값이 로그에 그대로
   찍힙니다. 1차 질문 뒤 후속 질의는 같은 세션에서 이어집니다.
+- 연구원 지침 편집 — 에이전트 탭의 **연구원 지침** 카드에서 자료조사·실험수행 연구원의 지침을 고칠 수 있습니다.
+  저장한 값은 `state/role_prompts.json`에 남고, 연구원은 작업을 받을 때마다 이 파일을 읽으므로 연구원을 다시 띄우지 않아도
+  **다음 위임부터** 적용됩니다(진행 중인 위임에는 닿지 않습니다). [기본값으로]를 누르거나 기본 지침과 같은 내용을 저장하면
+  고친 값을 지우고 `lab/roles.py`의 기본 지침으로 돌아갑니다. 지침에는 "실행하지 않은 수치를 만들지 않는다" 같은 보고 규칙이
+  들어 있으니 줄이거나 지울 때 확인하세요. 연구책임자의 지침은 이 카드에서 고치지 않습니다.
 - 연구원의 보고에는 OpenRouter와 주고받은 요청·응답 및 사용 도구 순서 기록(`trace`)이 포함됩니다.
 - 진행 그래프와 대화방 — `/api/research`는 연구가 끝날 때까지 응답을 쥐고 있으므로, 화면은
   락을 잡지 않는 `/api/research/progress`를 따로 물어 진행 중인 위임 로그를 그립니다.

@@ -86,7 +86,7 @@ def serve(role_name):
             entries, _errors = roles.tools_for(role_name)
             try:
                 out = runner.run(instruction, entries,
-                                 prompt=role["prompt"],
+                                 prompt=roles.prompt_for(role_name),   # 화면에서 고친 지침을 매번 읽는다
                                  web_search=role["web_search"],
                                  max_steps=config.AGENT_MAX_STEPS,
                                  trace=True)

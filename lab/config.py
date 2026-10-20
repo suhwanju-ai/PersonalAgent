@@ -21,6 +21,8 @@ RESEARCH_DIR = os.path.join(DATA_DIR, "research")
 STATE_DIR = os.path.join(ROOT, "state")
 TOOL_OVERRIDES_PATH = os.path.join(STATE_DIR, "tool_overrides.json")
 SYSTEM_PROMPT_PATH = os.path.join(STATE_DIR, "system_prompt.txt")
+# 화면에서 고친 연구원 지침. {역할 이름: 지침}. 없는 역할은 roles.py의 기본 지침을 쓴다.
+ROLE_PROMPTS_PATH = os.path.join(STATE_DIR, "role_prompts.json")
 DATA_PATH_OVERRIDE = os.path.join(STATE_DIR, "data_path.txt")
 # 화면에서 주소로 추가한 MCP 서버. 기본 목록(mcp_catalog.json)은 고치지 않고 여기에 따로 둔다.
 MCP_CUSTOM_PATH = os.path.join(STATE_DIR, "mcp_custom.json")

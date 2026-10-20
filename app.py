@@ -222,6 +222,23 @@ def _prompt_reset(_p):
     return {"ok": True}
 
 
+@route("/api/agents/prompt", lock=False)
+def _agent_prompt(p):
+    # 작은 파일 하나를 통째로 바꾸는 저장이라 연구 중에도 받는다. 다음 위임부터 적용된다.
+    try:
+        roles.set_prompt(p.get("role"), p.get("text"))
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    except OSError:
+        return {"ok": False, "message": "지침을 디스크에 저장하지 못했습니다. state/ 폴더 쓰기 권한을 확인해 주세요."}
+    return {"ok": True, "prompts": roles.prompts_view()}
+
+
+@route("/api/agents/prompt/reset", lock=False)
+def _agent_prompt_reset(p):
+    return _agent_prompt({"role": p.get("role"), "text": ""})
+
+
 @route("/api/agents/start")
 def _agent_start(p):
     name = p.get("role")
@@ -455,7 +472,7 @@ class Handler(BaseHTTPRequestHandler):
             # /api/chat이 LOCK을 보유하는 동안에도 계기판을 읽는다.
             self._json(CONTEXT_METER.snapshot())
         elif path == "/api/agents":
-            self._json({"agents": orchestrator.status()})
+            self._json({"agents": orchestrator.status(), "prompts": roles.prompts_view()})
         elif path == "/api/research/progress":
             # 여기서는 LOCK을 잡지 않는다. /api/research가 그 락을 쥔 채 도는 동안
             # 진행 상황을 읽어야 하기 때문이다.

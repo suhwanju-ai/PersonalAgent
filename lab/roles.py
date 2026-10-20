@@ -5,7 +5,14 @@
 조사 담당은 실행 도구를 아예 볼 수 없고, 실행 담당은 조사 도구를 볼 수 없다.
 """
 
+import json
+import os
+import threading
+
 from . import config
+
+ROLE_PROMPT_MAX_CHARS = 20000
+_PROMPT_WRITE_LOCK = threading.Lock()
 
 ORCHESTRATOR_PROMPT = """너는 연구책임자다. 두 명의 연구원에게 일을 맡겨 연구를 진행한다.
 
@@ -76,6 +83,73 @@ ROLES = {
 }
 
 ORDER = ["research", "experiment"]
+
+
+# ── 화면에서 고친 연구원 지침 ─────────────────────────────────────────
+# 연구원은 별도 프로세스라 모듈 상수를 바꿔도 닿지 않는다. 파일에 남기고
+# 연구원이 작업을 받을 때마다 읽어 가므로, 저장하면 다음 위임부터 적용된다(재시작 불필요).
+
+def _read_overrides():
+    try:
+        with open(config.ROLE_PROMPTS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def prompt_for(role_name):
+    """그 역할이 지금 따르는 지침. 고친 값이 있으면 그것을, 없으면 기본 지침을 돌려준다."""
+    text = _read_overrides().get(role_name)
+    if isinstance(text, str) and text.strip():
+        return text
+    return ROLES[role_name]["prompt"]
+
+
+def prompts_view():
+    """화면에 보여 줄 역할별 지침. 기본 지침도 함께 실어 '되돌리기'를 비교할 수 있게 한다."""
+    overrides = _read_overrides()
+    out = []
+    for name in ORDER:
+        role = ROLES[name]
+        edited = isinstance(overrides.get(name), str) and bool(overrides[name].strip())
+        out.append({"role": name, "label": role["label"], "prompt": prompt_for(name),
+                    "default": role["prompt"], "edited": edited})
+    return out
+
+
+def _write_overrides(data):
+    os.makedirs(config.STATE_DIR, exist_ok=True)
+    temp_path = config.ROLE_PROMPTS_PATH + ".tmp"
+    if data:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(temp_path, config.ROLE_PROMPTS_PATH)
+    elif os.path.exists(config.ROLE_PROMPTS_PATH):
+        os.remove(config.ROLE_PROMPTS_PATH)
+
+
+def set_prompt(role_name, text):
+    """지침을 저장한다. 비었거나 기본 지침과 같으면 고친 값을 지워 기본으로 돌린다."""
+    if not isinstance(role_name, str) or role_name not in ROLES:
+        raise ValueError("그런 역할이 없습니다.")
+    if not isinstance(text, str):
+        raise ValueError("지침을 문자열로 보내 주세요.")
+    text = text.replace("\r\n", "\n").strip()
+    if len(text) > ROLE_PROMPT_MAX_CHARS:
+        raise ValueError("지침은 %d자를 넘을 수 없습니다." % ROLE_PROMPT_MAX_CHARS)
+    with _PROMPT_WRITE_LOCK:
+        data = _read_overrides()
+        if not text or text == ROLES[role_name]["prompt"].strip():
+            data.pop(role_name, None)
+        else:
+            data[role_name] = text
+        _write_overrides(data)
+
+
+def clear_prompt(role_name):
+    set_prompt(role_name, "")
 
 
 def tools_for(role_name):

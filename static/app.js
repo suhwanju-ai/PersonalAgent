@@ -729,9 +729,92 @@ function drawAgents(list) {
   });
 }
 
+/* ── 연구원 지침 편집 ────────────────────────────────── */
+let ROLE_PROMPTS = [];          // 서버가 돌려준 [{role, label, prompt, default, edited}]
+const ROLE_DRAFTS = {};         // 저장하지 않고 고치는 중인 글. 연구원을 바꿔도 잃지 않는다.
+
+function currentRolePrompt() {
+  return ROLE_PROMPTS.find((p) => p.role === $("rolePromptRole").value);
+}
+
+function drawRolePromptState() {
+  const p = currentRolePrompt();
+  if (!p) return;
+  const draft = ROLE_DRAFTS[p.role];
+  const dirty = draft !== undefined && draft !== p.prompt;
+  $("rolePromptState").textContent = dirty ? "저장하지 않은 변경이 있습니다"
+    : p.edited ? "수정한 지침 사용 중" : "기본 지침 사용 중";
+  $("resetRolePrompt").disabled = !p.edited && !dirty;
+}
+
+function drawRolePrompts(prompts) {
+  if (!Array.isArray(prompts) || !prompts.length) return;
+  ROLE_PROMPTS = prompts;
+  const select = $("rolePromptRole");
+  const chosen = select.value;
+  if (select.options.length !== prompts.length) {
+    select.innerHTML = prompts.map((p) => `<option value="${esc(p.role)}">${esc(p.label)}</option>`).join("");
+  }
+  select.value = prompts.some((p) => p.role === chosen) ? chosen : prompts[0].role;
+  const p = currentRolePrompt();
+  // 고치는 중인 글이 있으면 덮어쓰지 않는다. 탭을 오가며 새로 고쳐도 입력이 사라지지 않게 한다.
+  $("rolePrompt").value = ROLE_DRAFTS[p.role] !== undefined ? ROLE_DRAFTS[p.role] : p.prompt;
+  drawRolePromptState();
+}
+
+$("rolePromptRole").addEventListener("change", () => {
+  const p = currentRolePrompt();
+  if (!p) return;
+  $("rolePrompt").value = ROLE_DRAFTS[p.role] !== undefined ? ROLE_DRAFTS[p.role] : p.prompt;
+  $("rolePromptNote").textContent = "";
+  drawRolePromptState();
+});
+$("rolePrompt").addEventListener("input", () => {
+  const p = currentRolePrompt();
+  if (!p) return;
+  ROLE_DRAFTS[p.role] = $("rolePrompt").value;
+  drawRolePromptState();
+});
+
+async function saveRolePrompt(role, text, doneMessage) {
+  $("saveRolePrompt").disabled = $("resetRolePrompt").disabled = true;
+  try {
+    const r = await post(text === null ? "/api/agents/prompt/reset" : "/api/agents/prompt",
+                         text === null ? { role } : { role, text });
+    if (!r.ok) {
+      $("rolePromptNote").textContent = r.message || "지침을 저장하지 못했습니다.";
+      return;
+    }
+    delete ROLE_DRAFTS[role];
+    drawRolePrompts(r.prompts);
+    $("rolePromptNote").textContent = doneMessage(r.prompts.find((p) => p.role === role));
+  } catch (e) {
+    $("rolePromptNote").textContent = e.message;
+  } finally {
+    $("saveRolePrompt").disabled = false;
+    drawRolePromptState();
+  }
+}
+$("saveRolePrompt").addEventListener("click", () => {
+  const p = currentRolePrompt();
+  if (!p) return;
+  if (!$("rolePrompt").value.trim()) {
+    $("rolePromptNote").textContent = "지침이 비어 있습니다. 기본 지침으로 되돌리려면 [기본값으로]를 누르세요.";
+    return;
+  }
+  saveRolePrompt(p.role, $("rolePrompt").value,
+    (saved) => saved && saved.edited ? "저장했습니다. 다음 위임부터 적용됩니다."
+      : "기본 지침과 같아 수정한 지침을 지웠습니다.");
+});
+$("resetRolePrompt").addEventListener("click", () => {
+  const p = currentRolePrompt();
+  if (p) saveRolePrompt(p.role, null, () => "기본 지침으로 되돌렸습니다. 다음 위임부터 적용됩니다.");
+});
+
 async function refreshAgents() {
   const r = await get("/api/agents");
   drawAgents(r.agents || []);
+  drawRolePrompts(r.prompts);
   // 연구가 도는 중에 새로고침해도 그래프가 이어지도록 진행 상황을 맞춰 둔다.
   try {
     const p = await get("/api/research/progress");
