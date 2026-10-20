@@ -420,6 +420,16 @@ button:hover:not(:disabled) { background:#f7f6f2; }
 .hint { color:var(--muted); }
 textarea,input[type=text] { border-color:var(--line); border-radius:8px; background:#fbfaf7; color:var(--ink); }
 textarea:focus,input[type=text]:focus { outline:2px solid #a8c9b7; border-color:var(--blue); }
+select { min-height:38px; width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fbfaf7; color:var(--ink); font:inherit; }
+select:focus { outline:2px solid #a8c9b7; border-color:var(--blue); }
+.llm-settings-form { display:grid; grid-template-columns:150px minmax(0,1fr); align-items:center; gap:9px 12px; }
+.llm-settings-form > label,.llm-ollama-settings > label { color:#4a4842; font-size:12px; font-weight:600; }
+.llm-settings-form > .hint { grid-column:2; margin:0; font-size:11px; }
+.llm-ollama-settings { grid-column:1/-1; display:grid; grid-template-columns:150px minmax(0,1fr); align-items:center; gap:9px 12px; }
+.llm-ollama-settings .hint { grid-column:2; margin:0; font-size:11px; }
+.llm-settings-footer { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.llm-settings-footer .meta { margin:0; }
+.llm-settings-footer button { margin-left:auto; }
 .tools-layout.panel.on { display:grid; grid-template-columns:minmax(0,1fr) 340px; align-items:start; gap:20px; }
 .tools-main,.tools-sidebar,.mcp-main-column,.mcp-tools-column,.agents-sidebar,.agents-main { display:flex; flex-direction:column; gap:16px; min-width:0; }
 .prompt-card { padding:0; overflow:hidden; }
@@ -487,18 +497,21 @@ textarea:focus,input[type=text]:focus { outline:2px solid #a8c9b7; border-color:
 .excluded-empty { background:transparent; }
 .empty { background:#f7f6f2; color:#8a877e; }
 main.panel.agents-layout.on[data-panel="agents"] {
-  display:block !important;
+  display:grid !important;
+  grid-template-columns:300px minmax(0,1fr);
+  align-items:start;
+  gap:20px;
   position:relative;
   width:100% !important;
   max-width:none !important;
   margin:0 !important;
 }
-main.panel.agents-layout.on[data-panel="agents"] > .agents-sidebar { width:300px !important; }
+main.panel.agents-layout.on[data-panel="agents"] > .agents-sidebar {
+  width:auto !important;
+  min-width:0;
+}
 main.panel.agents-layout.on[data-panel="agents"] > .agents-main {
-  position:absolute;
-  top:24px;
-  left:348px;
-  right:28px;
+  position:static !important;
   width:auto !important;
   min-width:0;
 }
@@ -542,12 +555,13 @@ main.panel.agents-layout.on[data-panel="agents"] > .agents-main {
 
 @media (max-width:1000px) {
   .tools-layout.panel.on { grid-template-columns:minmax(0,1fr) 300px; }
-  .agents-layout.panel.on { grid-template-columns:260px minmax(0,1fr); }
+  main.panel.agents-layout.on[data-panel="agents"] { grid-template-columns:260px minmax(0,1fr); }
 }
 @media (max-width:760px) {
   .top-inner { min-height:58px; flex-wrap:wrap; gap:8px 14px; padding:10px 16px; }
   .top-meta { font-size:10.5px; gap:9px; }
   .tools-layout.panel.on,.mcp-layout.panel.on { grid-template-columns:minmax(0,1fr); }
+  main.panel.agents-layout.on[data-panel="agents"] { grid-template-columns:minmax(0,1fr); }
   .tools-sidebar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
   .conversation-card { min-height:480px; }
 }
@@ -558,12 +572,15 @@ main.panel.agents-layout.on[data-panel="agents"] > .agents-main {
   .tabs { order:3; flex-basis:100%; }
   .tab { flex:1; }
   .panel { padding:16px 12px 32px; }
-  main.panel.agents-layout.on[data-panel="agents"] > .agents-main { position:absolute; left:348px; right:12px; top:16px; }
   .tools-sidebar,.agents-sidebar { grid-template-columns:minmax(0,1fr); }
   .graph-card { grid-column:auto; }
   .conversation-card { min-height:440px; }
   .chat-log { min-height:240px; padding:16px; }
   .card-head > div:first-child { flex-wrap:wrap; }
+  .llm-settings-form,.llm-ollama-settings { grid-template-columns:minmax(0,1fr); }
+  .llm-settings-form > .hint,.llm-ollama-settings .hint { grid-column:1; }
+  .llm-settings-footer { align-items:stretch; flex-direction:column; }
+  .llm-settings-footer button { align-self:flex-end; }
   .mcp-add-footer { align-items:stretch; flex-direction:column; }
   .mcp-add-footer button { align-self:flex-end; }
 }

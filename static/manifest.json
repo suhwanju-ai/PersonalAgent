@@ -1,0 +1,14 @@
+{
+  "name": "Common Agent",
+  "short_name": "Common Agent",
+  "description": "로컬 AI 도구와 에이전트 협업 웹앱",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#1428a0",
+  "background_color": "#f5f7fb",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

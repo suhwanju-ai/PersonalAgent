@@ -5,6 +5,8 @@ const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 let STATE = null;
+let LLM_SETTINGS_CACHE = null;
+let llmSettingsDirty = false;
 
 async function get(path) {
   const r = await fetch(path);
@@ -16,7 +18,17 @@ async function post(path, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
-  return r.json();
+  const text = await r.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch (_) {
+    throw new Error(`서버가 JSON 응답을 보내지 않았습니다 (HTTP ${r.status}). 배포 서버 로그를 확인해 주세요.`);
+  }
+  if (!r.ok && !result.message) {
+    result.message = `요청이 거부되었습니다 (HTTP ${r.status}). APP_TRUSTED_ORIGINS 설정을 확인해 주세요.`;
+  }
+  return result;
 }
 
 /* ── 탭 ─────────────────────────────────────────────── */
@@ -28,12 +40,6 @@ document.querySelectorAll(".tab").forEach((btn) => {
     btn.setAttribute("aria-current", "page");
     const panel = document.querySelector(`.panel[data-panel="${btn.dataset.tab}"]`);
     panel.classList.add("on");
-    const agentLayout = panel.matches('[data-panel="agents"]') ? panel : null;
-    if (agentLayout) {
-      agentLayout.style.cssText = "display:block!important;width:100%!important;max-width:none!important;margin:0!important;position:relative!important";
-      agentLayout.querySelector(".agents-sidebar").style.cssText = "width:300px!important";
-      agentLayout.querySelector(".agents-main").style.cssText = "position:absolute!important;top:24px!important;left:348px!important;right:28px!important;min-width:0!important";
-    }
   });
 });
 
@@ -49,7 +55,8 @@ function drawContext(c) {
   if (!c) return;
   const ratio = c.limit > 0 ? c.total / c.limit * 100 : 0;
   const totalLabel = `${tokenText(c.total)} / ${tokenText(c.limit)} tokens · ${percentText(ratio)}%`;
-  $("contextModel").textContent = c.model;
+  const providerName = c.provider === "ollama" ? "Ollama" : "OpenRouter";
+  $("contextModel").textContent = `${providerName} · ${c.model}`;
   $("contextTotal").textContent = `${c.basis === "api" ? "" : "약 "}${totalLabel}`;
   $("contextUsed").style.width = `${Math.min(100, Math.max(0, ratio))}%`;
   const capacity = $("contextCapacity");
@@ -285,8 +292,11 @@ async function uploadFiles(files) {
 
 function draw() {
   drawContext(STATE.context_window);
+  drawLlmSettings(STATE.llm_settings);
   $("chipTools").textContent = `도구 ${STATE.tools.length}`;
-  $("headerModel").textContent = STATE.context_window.model || "모델 확인 불가";
+  const providerName = STATE.llm_settings.provider === "ollama" ? "Ollama" : "OpenRouter";
+  $("headerModel").textContent = STATE.llm_settings.model
+    ? `${providerName} · ${STATE.llm_settings.model}` : "모델 확인 불가";
   $("prompt").value = STATE.prompt;
   drawChat(STATE.chat);
   drawMcp();
@@ -295,6 +305,23 @@ function draw() {
     : '<div class="empty">현재 제공되는 도구가 없습니다.</div>';
   drawFiles(STATE.research_files);
   drawErrors();
+}
+
+function updateLlmSettingsFields() {
+  const useOllama = $("llmProvider").value === "ollama";
+  $("ollamaSettings").hidden = !useOllama;
+  $("openRouterSettings").hidden = useOllama;
+  $("llmModel").placeholder = useOllama
+    ? "Ollama에 설치한 모델 이름" : "OpenRouter 모델 이름";
+}
+
+function drawLlmSettings(settings) {
+  if (llmSettingsDirty || !settings) return;
+  LLM_SETTINGS_CACHE = { ...settings };
+  $("llmProvider").value = settings.provider || "openrouter";
+  $("llmModel").value = settings.model || "";
+  $("ollamaBaseUrl").value = settings.ollama_base_url || "http://localhost:11434/v1";
+  updateLlmSettingsFields();
 }
 
 async function refresh() {
@@ -995,3 +1022,48 @@ $("resetChat").addEventListener("click", async () => {
 
 
 refresh();
+
+$("llmProvider").addEventListener("change", () => {
+  const previous = LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.provider || "openrouter";
+  if (LLM_SETTINGS_CACHE) LLM_SETTINGS_CACHE[`${previous}_model`] = $("llmModel").value.trim();
+  const provider = $("llmProvider").value;
+  const nextModel = LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE[`${provider}_model`];
+  $("llmModel").value = nextModel || "";
+  if (LLM_SETTINGS_CACHE) LLM_SETTINGS_CACHE.provider = provider;
+  llmSettingsDirty = true;
+  updateLlmSettingsFields();
+});
+$("llmModel").addEventListener("input", () => {
+  llmSettingsDirty = true;
+  if (LLM_SETTINGS_CACHE) LLM_SETTINGS_CACHE[`${$("llmProvider").value}_model`] = $("llmModel").value.trim();
+});
+$("ollamaBaseUrl").addEventListener("input", () => { llmSettingsDirty = true; });
+$("llmSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = $("saveLlmSettings"), note = $("llmSettingsNote");
+  button.disabled = true;
+  note.textContent = "설정 저장 중…";
+  try {
+    const provider = $("llmProvider").value;
+    const r = await post("/api/llm/settings", {
+      provider,
+      model: $("llmModel").value.trim(),
+      openrouter_model: LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.openrouter_model || "",
+      ollama_model: LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.ollama_model || "",
+      ollama_base_url: $("ollamaBaseUrl").value.trim(),
+    });
+    if (!r.ok) {
+      note.textContent = r.message || "설정을 저장하지 못했습니다.";
+      return;
+    }
+    llmSettingsDirty = false;
+    note.textContent = "설정을 저장했습니다. 다음 요청부터 적용됩니다.";
+    await refresh().catch(() => {});
+  } catch (error) {
+    note.textContent = error instanceof TypeError
+      ? "설정 API에 연결하지 못했습니다. 페이지 새로고침 후에도 반복되면 배포 주소의 APP_TRUSTED_ORIGINS 설정과 프록시 연결을 확인해 주세요."
+      : (error.message || "설정을 저장하지 못했습니다. 배포 서버 로그를 확인해 주세요.");
+  } finally {
+    button.disabled = false;
+  }
+});

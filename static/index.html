@@ -4,7 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Common Agent</title>
-<link rel="stylesheet" href="/static/style.css?v=agents-full-width-11">
+<meta name="theme-color" content="#1428a0">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="alternate icon" href="/static/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="stylesheet" href="/static/style.css?v=agents-grid-13">
 </head>
 <body>
 <header class="top">
@@ -22,6 +27,22 @@
 
 <main class="panel on tools-layout" data-panel="tools">
   <section class="tools-main">
+    <section class="card llm-settings-card" aria-labelledby="llmSettingsHeading">
+      <div class="card-head"><div><h2 id="llmSettingsHeading">모델 연결</h2><span class="subtle">선택한 설정은 이 PC에 저장됩니다</span></div></div>
+      <form id="llmSettingsForm" class="llm-settings-form">
+        <label for="llmProvider">제공자</label>
+        <select id="llmProvider"><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option></select>
+        <label for="llmModel">모델 이름</label>
+        <input id="llmModel" type="text" maxlength="160" autocomplete="off" placeholder="Ollama에 설치한 모델 이름" required>
+        <div id="ollamaSettings" class="llm-ollama-settings" hidden>
+          <label for="ollamaBaseUrl">Ollama API 주소</label>
+          <input id="ollamaBaseUrl" type="text" inputmode="url" autocomplete="url" placeholder="http://localhost:11434/v1">
+          <p class="hint">Ollama 주소는 앱 서버에서 접근합니다. 운영 서버와 Ollama가 다른 장비라면 localhost 대신 운영 서버에서 접근 가능한 주소를 입력하세요. 도구 호출을 지원하는 모델이 필요합니다.</p>
+        </div>
+        <p id="openRouterSettings" class="hint">OpenRouter 키는 .env의 OPENROUTER_API_KEY에서 읽습니다.</p>
+        <div class="llm-settings-footer"><span id="llmSettingsNote" class="meta" aria-live="polite"></span><button class="primary" id="saveLlmSettings" type="submit">설정 저장</button></div>
+      </form>
+    </section>
     <section class="card prompt-card" id="roleCard">
       <div class="card-head"><div><h2>역할 지시문</h2><span class="subtle">state/ 에 저장</span></div><div class="head-actions"><button class="ghost" id="resetPrompt">초기화</button><button class="primary compact" id="savePrompt">저장</button></div></div>
       <label for="prompt" class="sr-only">AI가 요청을 처리할 때 따르는 역할 지시문</label>
@@ -129,7 +150,7 @@
 </svg>
     <div id="wire" class="wirebox" hidden><div class="wirebox-head"><span class="dir" id="wireDir"></span><span class="kind" id="wireKind"></span></div><pre id="wireText"></pre></div>
     </details>
-  </section>
+  </aside>
   <section class="agents-main">
     <section class="card research-card" id="requestCard">
       <div class="card-head"><div><h2>연구 요청</h2><span class="subtle">연구책임자에게 요청</span></div></div>
@@ -146,6 +167,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=ui-cleanup-5"></script>
+<script src="/static/app.js?v=tab-layout-reset-8"></script>
 </body>
 </html>
