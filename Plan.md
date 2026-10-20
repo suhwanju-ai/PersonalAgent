@@ -4,7 +4,7 @@
 
 ## 1. 제품 개요
 
-Common Agent는 Python 표준 라이브러리 기반의 로컬 웹앱이다. 사용자는 도구를 연결해 AI와 대화하거나, 조사·실험 역할을 맡은 두 연구원을 연구책임자 에이전트가 조율하도록 할 수 있다. 모델 요청은 OpenRouter Chat Completions API를 사용한다.
+Common Agent는 Python 표준 라이브러리 기반의 로컬 웹앱이다. 사용자는 도구를 연결해 AI와 대화하거나, 조사·실험 역할을 맡은 두 연구원을 연구책임자 에이전트가 조율하도록 할 수 있다. 모델 제공자는 OpenRouter 또는 Ollama의 OpenAI 호환 API 중 웹 UI에서 선택한다.
 
 - 실행 진입점: `run.bat` 또는 `py app.py`
 - 기본 주소: `http://127.0.0.1:8770/`
@@ -17,6 +17,7 @@ Common Agent는 Python 표준 라이브러리 기반의 로컬 웹앱이다. 사
 ### 도구 대화
 
 - 도구 탭에서 요청을 보내고 Context Window 계기판을 확인한다.
+- 모델 연결 카드에서 OpenRouter/Ollama, 모델 이름, Ollama 호환 API 주소를 설정한다. 설정은 `state/llm_settings.json`에 저장되며 API 키는 OpenRouter 선택 시 `.env`에서 읽는다.
 - 내장 메모 도구와 연결된 MCP 도구를 모델에 제공한다. 선택된 도구 실행 결과는 답변과 호출 목록에 표시된다.
 - 성공한 대화는 `state/chat_history.json`에 저장되어 다음 요청의 문맥으로 이어지며, 최근 30턴까지만 유지한다. 대화 초기화는 저장된 기록과 Context 계기판을 비운다.
 - Context Window 계기판은 Instructions, Tools, Context 비중과 전체 사용량을 표시한다. API 토큰 사용량이 있으면 이를 반영하고, 진행 중에는 텍스트 길이 기반 추정값을 사용한다. 항목별 수치는 정확한 토크나이저 측정값이 아니다.
@@ -59,6 +60,7 @@ Common Agent는 Python 표준 라이브러리 기반의 로컬 웹앱이다. 사
 ### 저장 위치
 
 - `state/`: 대화 기록, 사용자 지시문, MCP 사용자 서버, MCP 제외 도구 목록 등 런타임 상태. Git에서 제외된다.
+- `state/llm_settings.json`: 웹에서 선택한 모델 제공자·모델·Ollama API 주소. API 키는 저장하지 않는다.
 - `mcp_catalog.json`, `mcp_config.json`: 기본 MCP 서버 카탈로그와 현재 연결 설정.
 - `data/research/`: 연구원이 읽는 입력 자료.
 - `.env`: 로컬 비밀값과 모델 설정. 실제 값은 Plan 문서나 로그에 복사하지 않는다.

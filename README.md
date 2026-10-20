@@ -13,7 +13,7 @@ AI에게 도구를 제공하고 연구 작업을 맡기는 로컬 웹앱입니�
   [중지]로 다음 위임부터 멈출 수 있습니다. 예시 질문 칩으로 요청을 채우고, 꺼져 있는 연구원은
   연구를 시작할 때 자동으로 뜹니다. 연구 자료 파일(`data/research/`)은 화면에서 올리고 지울 수 있습니다.
 
-`run.bat` 또는 `python app.py`로 실행합니다. 실행 모드를 선택하는 환경변수는 없습니다.
+Windows에서는 `run.bat`, Ubuntu에서는 `./run.sh` 또는 `python3 app.py`로 실행합니다. 실행 모드를 선택하는 환경변수는 없습니다.
 
 파이썬 표준 라이브러리만 씁니다. `pip install`이 필요 없습니다.
 
@@ -24,7 +24,7 @@ AI에게 도구를 제공하고 연구 작업을 맡기는 로컬 웹앱입니�
 - 전체 현황: API 응답 뒤에는 **마지막 호출의 입력 + 출력 토큰**을 사용합니다. 여러 호출의 청구 토큰을 누적한 값과 다릅니다. 응답 대기 중과 도구 결과 추가 직후에는 로컬 추정값을 표시합니다.
 - 상세 현황: Instructions는 적용한 역할 지시문, Tools는 도구 이름·설명·매개변수 스키마(연결된 MCP 포함), Context는 저장된 앞선 대화와 이번 요청의 메시지·응답·도구 호출·실행 결과입니다. 항목별 수치는 텍스트 길이 기반 추정이며, 응답 뒤에는 API 입력 합계에 비례 배분하고 출력 토큰을 Context에 더합니다. 실제 tokenizer나 API가 항목별로 측정한 값은 아닙니다.
 - 대화창의 대화는 `state/chat_history.json`에 저장되어 다음 요청의 입력에 이어 붙습니다(사용자 메시지·응답·도구 호출·도구 결과 모두). 앱을 다시 켜도 이어지며, 최근 30턴(`lab/config.py`의 `CHAT_MAX_TURNS`)까지만 남기고 오래된 턴부터 지웁니다. 대화창의 [대화 초기화]를 누르면 기록을 지우고 Context가 0에서 다시 시작합니다. 입력창에만 작성한 미전송 문장은 포함하지 않습니다. 완료 후 마지막 상태를 유지하며, 역할·도구 구성을 변경해 적용하면 저장된 대화를 포함한 새 구성의 초기 추정값으로 갱신합니다. 처리 중에는 0.5초 간격으로 상태를 조회합니다.
-- 모델은 `.env`의 `OPENROUTER_MODEL`로 바꾸고, 컨텍스트 최대치는 `OPENROUTER_CONTEXT_WINDOW_TOKENS`로 지정합니다.
+- 모델 제공자와 모델 이름은 도구 탭의 **모델 연결**에서 설정합니다. Ollama는 기본 주소 `http://localhost:11434/v1`을 사용하며, 설치한 모델 이름을 입력합니다. OpenRouter 키는 `.env`에 둡니다. 컨텍스트 최대치는 `OPENROUTER_CONTEXT_WINDOW_TOKENS`로 지정합니다.
 - 계기판을 위해 추가 API 호출이나 패키지 설치를 하지 않습니다. `lab/context_window.py`가 계산하고 `/api/context`가 상태를 제공합니다.
 
 ## 실행
@@ -37,7 +37,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-`.env`의 `OPENROUTER_API_KEY=` 뒤에 발급받은 API 키를 입력하고 저장합니다. 사용할 모델은 `OPENROUTER_MODEL`에서 지정할 수 있습니다.
+`.env`의 `OPENROUTER_API_KEY=` 뒤에 발급받은 API 키를 입력하고 저장합니다. Ollama를 사용할 때는 Ollama를 실행한 뒤 도구 탭의 **모델 연결**에서 제공자를 Ollama로 바꾸고 API 주소와 설치된 모델 이름을 저장합니다. 설정은 `state/llm_settings.json`에 보관됩니다.
 
 ```powershell
 .\run.bat
@@ -47,17 +47,31 @@ notepad .env
 8771 · 8772 포트에 뜹니다. 창을 닫으면 자식 프로세스까지 정리됩니다.
 지난 실행이 남아 있으면 시작할 때 먼저 정리합니다.
 
+### Ubuntu
+
+Python 3가 설치된 환경에서 프로젝트 폴더로 이동해 다음 스크립트를 실행합니다. 앱은 Python 표준 라이브러리만 사용하므로 별도 패키지 설치는 필요하지 않습니다.
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+OpenRouter를 사용할 때는 `.env.example`을 `.env`로 복사하고 `OPENROUTER_API_KEY`를 설정합니다. Ollama만 사용할 경우 `.env` 없이 실행한 뒤, 도구 탭의 **모델 연결**에서 Ollama 주소와 설치된 모델 이름을 저장하면 됩니다. 기본 Ollama 주소는 `http://localhost:11434/v1`입니다.
+
+리버스 프록시를 통해 HTTPS 도메인으로 운영하는 경우 `.env`의 `APP_TRUSTED_ORIGINS`에 브라우저에서 접속하는 원본 주소를 정확히 적습니다. 예: `APP_TRUSTED_ORIGINS=https://agent.example.com`. 여러 주소는 쉼표로 구분합니다. 이 주소로 들어오는 요청은 HTTP Basic 인증을 요구합니다(사용자 이름은 아무 값, 비밀번호는 `.env`의 `APP_ACCESS_TOKEN`). `APP_ACCESS_TOKEN`이 비어 있으면 외부 접속을 거부하며, `localhost`·`127.0.0.1` 접속에는 인증이 없습니다. 두 값은 시작할 때만 읽으므로 바꾸면 재시작합니다. 설정 변경이 유지되도록 배포 환경의 `state/` 폴더에 쓰기 권한과 영구 저장 공간을 제공해야 합니다. 운영 서버와 Ollama가 다른 장비라면 Ollama 주소에 `localhost` 대신 운영 서버에서 접근할 수 있는 사설망 주소나 내부 DNS 이름을 입력하고, 방화벽에서 해당 연결을 허용해야 합니다.
+
 ## 폴더
 
 ```
 app.py                      HTTP 서버 · /api/* · 화면 상태
 run.bat                    도구·MCP·에이전트 탭을 함께 실행
+run.sh                     Ubuntu에서 앱을 실행
 mcp_catalog.json            연결할 수 있는 MCP 서버 목록 (화면에서 고른다).
                             키가 필요한 서버는 ${VAR} 자리표시자로 적는다
 mcp_config.json             지금 붙어 있는 서버. 처음에는 비어 있다
 
-lab/config.py               모델 · 포트 · 실행 통제 값
-lab/llm.py                  OpenRouter Chat Completions 호출 (function calling · 웹 검색)
+lab/config.py               모델 제공자 · 모델 · 포트 설정
+lab/llm.py                  OpenRouter 또는 Ollama 호환 Chat Completions 호출
 lab/tools.py                내장 도구 memo_tool_1/2/3/4 (검색·저장·삭제·수정)
 lab/registry.py             내장 도구 + MCP 도구를 한 목록으로. 설명문 덮어쓰기
 lab/mcp_client.py           MCP 클라이언트 — stdio 와 Streamable HTTP
@@ -115,7 +129,7 @@ OS 수준 격리 실행기가 구성되기 전까지 `lab/sandbox.py`는 요청�
 
 ## 모델
 
-기본 모델은 `openai/gpt-4o-mini`이며 `.env`에서 `OPENROUTER_MODEL`로 변경할 수 있습니다. API는 OpenRouter Chat Completions 형식이며, 앱이 직접 history를 보관합니다. 웹 검색 요청에는 OpenRouter의 `:online` 모델 접미사를 사용합니다.
+기본 제공자는 OpenRouter이며 기본 모델은 `openai/gpt-4o-mini`입니다. 제공자와 모델은 웹 UI에서 바꾸며 설정은 `state/llm_settings.json`에 저장됩니다. OpenRouter 키는 `.env`의 `OPENROUTER_API_KEY`를 사용하고, Ollama는 OpenAI 호환 주소(기본 `http://localhost:11434/v1`)로 요청합니다. Ollama 모델은 도구 호출을 지원해야 하며, OpenRouter 웹 검색 플러그인은 Ollama에서 사용하지 않습니다. 앱이 대화 history를 직접 보관합니다.
 
 ## 초기 상태와 개발 시작
 

@@ -2,6 +2,9 @@
   "mcpServers": {
     "국가법령": {
       "url": "https://mcp.gomdori.app/law"
+    },
+    "mslearn": {
+      "url": "https://learn.microsoft.com/api/mcp"
     }
   }
 }

@@ -15,7 +15,11 @@ Do not read or print the contents of `.env`, which holds `OPENROUTER_API_KEY`. `
 ```powershell
 Copy-Item .env.example .env      # then set OPENROUTER_API_KEY=
 .\run.bat                        # or: python app.py  (sets PYTHONUTF8=1 first in run.bat)
+./run.sh                         # Ubuntu/bash equivalent
 ```
+
+- `run.bat` exits if `.env` is missing, even when using Ollama only. Running `python app.py` directly skips that check. Set `PYTHONUTF8=1` yourself when you bypass the scripts, since the UI and data are Korean.
+- When serving over HTTPS behind a reverse proxy, list the browser-facing origin in `.env` `APP_TRUSTED_ORIGINS` (comma-separated). Otherwise `lab/http_security.py` rejects the POSTs. Requests arriving through a trusted origin must pass HTTP Basic auth with `APP_ACCESS_TOKEN` as the password (refused outright if the token is unset); loopback access is not authenticated. Both values are read once at startup. The Ollama base URL setting rejects link-local addresses.
 
 - The main app runs at `http://127.0.0.1:8770/`. The researcher agents use `:8771` (research) and `:8772` (experiment). They start from the Agents tab, or automatically when a research run begins.
 - To run one agent on its own: `python agents/research_agent.py` or `python agents/experiment_agent.py`. Each exposes `GET /info` and `POST /task {"instruction": ...}`.
@@ -44,8 +48,10 @@ Copy-Item .env.example .env      # then set OPENROUTER_API_KEY=
 ## Config and state
 
 - `lab/config.py` holds model config (`OPENROUTER_MODEL`, `OPENROUTER_CONTEXT_WINDOW_TOKENS`), ports, and step limits.
+- The model provider, model name, and Ollama OpenAI-compatible base URL are stored in ignored `state/llm_settings.json`. OpenRouter credentials remain in `.env`; never return them in state or UI responses. Ollama does not use OpenRouter's web-search plugin.
 - `mcp_catalog.json` lists the MCP servers available to connect, and `mcp_config.json` lists the ones currently connected. Servers added by URL in the MCP tab (`/api/mcp/add`) are stored separately in `state/mcp_custom.json` and merged in by `app.catalog()`. When a name exists in both, the base catalog's entry is used. Only these custom servers can be deleted (`/api/mcp/remove`). The server name becomes the tool `source`, so `내장`, `위임`, and `알 수 없음` are rejected. Write secrets as `${VAR}` placeholders. They are filled from `.env` in memory only when connecting.
 - `state/` is created at runtime and gitignored. It holds the edited tool descriptions, the system prompt, the notes data path override, and `chat_history.json`. `data/notes.json` resets from `data/seed/notes.json`.
 - The role prompts in `lab/roles.py` enforce rules that the app's behavior depends on. For example, final numbers must come from code that actually ran, business assumptions come only from the data file, and the report gives no go/no-go judgment. Keep these rules intact when you edit the prompts.
 - The frontend is plain HTML, CSS, and JS in `static/` with no build step.
+- `README.md` (Korean) documents user-facing behavior and the folder layout. `Plan.md` is a product-status and roadmap doc whose roadmap section is proposals, not commitments. `Tool추가.md` is a worked example of adding a built-in tool (`memo_tool_4`): one entry in `lab/tools.py` `TOOLS` is enough, and the UI, context meter, and API log pick it up with no frontend change.
 - Local POST endpoints validate Host, Origin, Fetch Metadata, JSON content type, and body size through `lab/http_security.py`; child agent endpoints reject browser-origin requests.
