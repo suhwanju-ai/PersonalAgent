@@ -117,6 +117,12 @@ def build(include_mcp=True):
     except Exception:                                   # noqa: BLE001
         errors.append("도구 파일을 읽지 못했습니다. 마지막 수정 내용을 확인해 주세요.")
 
+    try:
+        from . import skills
+        entries.extend(skills.entries())
+    except Exception:                                   # noqa: BLE001
+        errors.append("스킬 폴더를 읽지 못했습니다. skills/ 안의 SKILL.md를 확인해 주세요.")
+
     if include_mcp:
         from . import mcp_client
         mcp_entries, mcp_errors = mcp_client.connect_all(config.MCP_CONFIG_PATH)

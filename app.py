@@ -14,8 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lab import (config, context_window, datafile, http_security, llm, mcp_client,    # noqa: E402
-                 orchestrator, registry, roles, runner, tools)
+from lab import (config, context_window, datafile, html_render, http_security, llm, mcp_client,    # noqa: E402
+                 orchestrator, registry, roles, runner, skills, tools)
 
 STATIC = os.path.join(config.ROOT, "static")
 CATALOG_PATH = os.path.join(config.ROOT, "mcp_catalog.json")
@@ -97,6 +97,7 @@ def state():
             "source": e.get("source", ""),
         } for e in entries],
         "disabled_tools": registry.disabled_mcp_tools(),
+        "skills": skills.view(),
         "context_window": CONTEXT_METER.prepare(runner.system_prompt(), registry.declarations(entries),
                                                 runner.chat_items(turns)),
         "chat": chat_view(turns),
@@ -341,7 +342,7 @@ def _mcp_toggle(p):
 
 
 # 서버 이름은 도구의 소속(source)으로 쓰인다. 앱이 이미 쓰는 소속 이름은 받지 않는다.
-RESERVED_SOURCES = ("내장", "위임", "알 수 없음")
+RESERVED_SOURCES = ("내장", "위임", "스킬", "알 수 없음")
 
 
 @route("/api/mcp/add")
@@ -418,6 +419,23 @@ def _mcp_add_json(p):
     if not added:
         return {"ok": False, "message": " / ".join(problems)}
     return {"ok": True, "added": added, "tools": tools, "problems": problems}
+
+
+@route("/api/skills/save")
+def _skill_save(p):
+    """스킬을 추가하거나 고친다. 앱을 다시 켜지 않아도 다음 요청부터 모델에게 보인다."""
+    try:
+        name = skills.save(p.get("name"), p.get("description"), p.get("tools"), p.get("body"))
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, "name": name, "skills": skills.view()}
+
+
+@route("/api/skills/delete")
+def _skill_delete(p):
+    if not skills.remove((p.get("name") or "").strip()):
+        return {"ok": False, "message": "그런 스킬이 없습니다."}
+    return {"ok": True, "skills": skills.view()}
 
 
 @route("/api/mcp/remove")
@@ -514,6 +532,16 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/context":
             # /api/chat이 LOCK을 보유하는 동안에도 계기판을 읽는다.
             self._json(CONTEXT_METER.snapshot())
+        elif path == "/api/output":
+            # render_html이 만든 문서. 직접 열어도 스크립트가 돌지 않게 sandbox를 건다.
+            query = self.path.partition("?")[2]
+            out_id = dict(p.partition("=")[::2] for p in query.split("&") if p).get("id", "")
+            html = html_render.load(out_id)
+            if html is None:
+                self._send(404, "not found", "text/plain; charset=utf-8")
+            else:
+                self._send(200, html, "text/html; charset=utf-8",
+                           {"Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
         elif path == "/api/agents":
             self._json({"agents": orchestrator.status(), "prompts": roles.prompts_view()})
         elif path == "/api/research/progress":

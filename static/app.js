@@ -325,6 +325,7 @@ function draw() {
   $("prompt").value = STATE.prompt;
   drawChat(STATE.chat);
   drawMcp();
+  drawSkills(STATE.skills);
   $("activeToolList").innerHTML = STATE.tools.length ? STATE.tools.map((tool) =>
     `<div class="active-tool"><code>${esc(tool.name)}</code><span>${esc(tool.source)}</span></div>`).join("")
     : '<div class="empty">현재 제공되는 도구가 없습니다.</div>';
@@ -382,6 +383,115 @@ function drawChat(turns) {
   box.scrollTop = box.scrollHeight;
 }
 
+/* ── 스킬 ───────────────────────────────────────────── */
+let SKILLS = { skills: [], tools: [] };
+let SKILL_EDITING = null;           // 고치는 스킬의 이름. 새로 만드는 중이면 null
+
+function drawSkills(view) {
+  if (!view) return;
+  SKILLS = view;
+  $("chipSkills").textContent = `${view.skills.length}개`;
+  $("skillList").innerHTML = view.skills.length ? view.skills.map((s) =>
+    `<button type="button" class="skill-row" data-name="${esc(s.name)}"><b>${esc(s.name)}</b><span>${esc(s.description)}</span></button>`).join("")
+    : '<div class="empty">등록된 스킬이 없습니다.</div>';
+}
+
+function openSkill(name) {
+  const s = SKILLS.skills.find((x) => x.name === name) || null;
+  SKILL_EDITING = s ? s.name : null;
+  $("skillDialogTitle").textContent = s ? `스킬 · ${s.name}` : "스킬 추가";
+  $("skillName").value = s ? s.name : "";
+  $("skillName").readOnly = !!s;                  // 이름은 폴더 이름이라 만든 뒤에는 바꾸지 않는다
+  $("skillDesc").value = s ? s.description : "";
+  $("skillBody").value = s ? s.body : "";
+  $("skillTools").innerHTML = SKILLS.tools.map((t) =>
+    `<label class="skill-tool"><input type="checkbox" value="${esc(t.name)}"${s && s.tools.includes(t.name) ? " checked" : ""}>`
+    + `<span><code>${esc(t.name)}</code> ${esc((t.description.match(/^.*?[.。](?=\s|$)/) || [t.description])[0])}</span></label>`).join("")
+    || '<span class="meta">고를 수 있는 도구가 없습니다.</span>';
+  $("deleteSkill").hidden = !s;
+  $("skillNote").textContent = "";
+  $("skillImportText").value = "";
+  $("skillImportNote").textContent = "";
+  $("skillImport").open = false;
+  $("skillDialog").showModal();
+  (s ? $("skillDesc") : $("skillName")).focus();
+}
+/* Claude Code의 SKILL.md를 그대로 붙여 넣어 칸을 채운다. 서버(lab/skills.py)와 같은 규칙으로 읽는다. */
+function importSkillMd(raw) {
+  const text = String(raw).replace(/\r\n/g, "\n").trim();
+  const meta = {};
+  let body = text;
+  if (text.startsWith("---\n")) {
+    const end = text.indexOf("\n---", 4);
+    if (end > 0) {
+      text.slice(4, end).split("\n").forEach((line) => {
+        const i = line.indexOf(":");
+        if (i > 0) meta[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+      });
+      body = text.slice(end + 4).replace(/^\n+/, "");
+    }
+  }
+  const notes = [];
+  const desc = (meta.description || "").replace(/\s+/g, " ");
+  if (desc.length > 300) notes.push(`설명이 ${desc.length}자라 300자로 줄였습니다. 언제 쓰는지가 남도록 다듬어 주세요.`);
+  const have = SKILLS.tools.map((t) => t.name);
+  const tools = (meta.tools || "").split(/[,\s]+/).filter((t) => have.includes(t));
+  // Claude Code 전용 내용은 이 앱에 없는 도구·명령을 부르게 만든다.
+  if (/\bbun\b|Artifact|localhost:31337|~\/\.claude|Voice Notification|\bTools\/\w+\.ts/i.test(body)) {
+    notes.push("지침에 Claude Code 전용 내용(bun, Artifact, 음성 알림 등)이 있습니다. 이 앱에는 없으니 지우거나 바꿔 주세요.");
+  }
+  return { name: (meta.name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40),
+           description: desc.slice(0, 300), tools, body, notes };
+}
+$("skillImportRun").addEventListener("click", () => {
+  if (!$("skillImportText").value.trim()) { $("skillImportNote").textContent = "붙여 넣은 내용이 없습니다."; return; }
+  const r = importSkillMd($("skillImportText").value);
+  if (!SKILL_EDITING && r.name) $("skillName").value = r.name;        // 고치는 중이면 이름은 그대로 둔다
+  if (r.description) $("skillDesc").value = r.description;
+  $("skillBody").value = r.body;
+  $("skillTools").querySelectorAll("input").forEach((i) => { i.checked = r.tools.includes(i.value); });
+  $("skillImportNote").textContent = ["채웠습니다. 확인하고 저장하세요.", ...r.notes].join(" ");
+});
+
+$("skillList").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".skill-row");
+  if (row) openSkill(row.dataset.name);
+});
+$("addSkill").addEventListener("click", () => openSkill(null));
+$("closeSkill").addEventListener("click", () => $("skillDialog").close());
+$("skillDialog").addEventListener("click", (ev) => { if (ev.target === $("skillDialog")) $("skillDialog").close(); });
+$("saveSkill").addEventListener("click", async () => {
+  $("saveSkill").disabled = true;
+  try {
+    const r = await post("/api/skills/save", {
+      name: $("skillName").value.trim(),
+      description: $("skillDesc").value,
+      tools: [...$("skillTools").querySelectorAll("input:checked")].map((i) => i.value),
+      body: $("skillBody").value,
+    });
+    if (!r.ok) { $("skillNote").textContent = r.message || "저장하지 못했습니다."; return; }
+    drawSkills(r.skills);
+    $("skillDialog").close();
+    refresh();                                   // 도구 목록과 Context 계기판에 반영
+  } catch (e) {
+    $("skillNote").textContent = e.message;
+  } finally {
+    $("saveSkill").disabled = false;
+  }
+});
+$("deleteSkill").addEventListener("click", async () => {
+  if (!SKILL_EDITING || !confirm(`'${SKILL_EDITING}' 스킬을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+  try {
+    const r = await post("/api/skills/delete", { name: SKILL_EDITING });
+    if (!r.ok) { $("skillNote").textContent = r.message || "삭제하지 못했습니다."; return; }
+    drawSkills(r.skills);
+    $("skillDialog").close();
+    refresh();
+  } catch (e) {
+    $("skillNote").textContent = e.message;
+  }
+});
+
 $("goMcp").addEventListener("click", () => document.querySelector('.tab[data-tab="mcp"]').click());
 
 /* ── HTML 결과 미리보기 ──────────────────────────────── */
@@ -410,6 +520,28 @@ function htmlPreview(source) {
     + `<button type="button" class="ghost compact html-download" data-doc="${key}">다운로드</button></div>`
     + `<iframe class="html-frame" sandbox="" title="${attr(name)}" srcdoc="${attr(injectHead(source, csp))}"></iframe>`
     + `<details class="html-src"><summary>소스 보기</summary><pre><code>${esc(source)}</code></pre></details></div>`;
+}
+/* render_html 스킬이 만든 문서는 답변에 [[html:id]] 한 줄로 들어 있다. 서버에서 받아 미리보기로 바꾼다.
+   다시 그릴 때마다 받지 않도록 한 번 받은 글은 기억한다. */
+const OUTPUTS = new Map();      // id -> 문서 글. 받지 못했으면 null
+const OUTPUT_LOADING = new Set();
+function outputCard(id) {
+  if (OUTPUTS.has(id)) {
+    return OUTPUTS.get(id) === null
+      ? '<div class="html-result"><div class="html-result-bar"><b>문서를 찾을 수 없습니다. 오래되어 지워졌을 수 있습니다.</b></div></div>'
+      : htmlPreview(OUTPUTS.get(id));
+  }
+  if (!OUTPUT_LOADING.has(id)) {
+    OUTPUT_LOADING.add(id);
+    fetch("/api/output?id=" + id)
+      .then((r) => (r.ok ? r.text() : null), () => null)
+      .then((text) => {
+        OUTPUTS.set(id, text);
+        OUTPUT_LOADING.delete(id);
+        document.querySelectorAll(`.html-pending[data-output="${id}"]`).forEach((el) => { el.outerHTML = outputCard(id); });
+      });
+  }
+  return `<div class="html-result html-pending" data-output="${id}"><div class="html-result-bar"><b>HTML 문서를 불러오는 중…</b></div></div>`;
 }
 document.addEventListener("click", (ev) => {
   const b = ev.target.closest(".html-download");
@@ -467,6 +599,7 @@ function md(src) {
     }
     const line = raw.trimEnd();
     let m;
+    if ((m = line.match(/^\s*\[\[html:([0-9a-f]{12})\]\]\s*$/))) { flushPara(); flushList(); out.push(outputCard(m[1])); continue; }
     if (/^```/.test(line)) { flushPara(); flushList(); code = []; codeLang = line.slice(3).trim().toLowerCase(); continue; }
     if (looksLikeHtmlDoc(line)) { flushPara(); flushList(); rawHtml = [raw]; if (/<\/html>/i.test(raw)) { out.push(htmlPreview(raw)); rawHtml = null; } continue; }
     if (/^\s*\\\[\s*$/.test(line)) { flushPara(); flushList(); math = []; continue; }

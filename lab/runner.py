@@ -7,6 +7,7 @@
 """
 
 import json
+import re
 import os
 import time
 
@@ -199,6 +200,13 @@ def run(message, entries, prompt=None, web_search=False, max_steps=None, history
         answer = "중지했습니다. 여기까지 진행한 내용은 아래에 남아 있습니다."
     if not answer:
         answer = "답변을 만들지 못했습니다. 다시 한 번 말씀해 주세요."
+    # render_html이 만든 문서는 모델이 표시 줄을 빠뜨려도 답변 끝에 붙여 화면에 나오게 한다.
+    for c in reversed(calls_log):
+        m = c["tool"] == "render_html" and re.search(r"\[\[html:[0-9a-f]{12}\]\]", c["result"])
+        if m:
+            if m.group(0) not in answer:
+                answer = answer.rstrip() + "\n\n" + m.group(0)
+            break
     out = {
         "answer": answer,
         "calls": calls_log,

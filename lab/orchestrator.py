@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import config, llm, roles
+from . import config, llm, roles, skills
 
 _CHILDREN = {}          # role -> Popen
 
@@ -287,7 +287,8 @@ def research(question, follow_up=False):
 
     started = time.time()
     log = []
-    entries = _delegate_entries(log)
+    # 위임 도구에 더해, 스킬(HTML 문서 만들기 등)을 쓸 수 있다. 연구원에게는 주지 않는다.
+    entries = _delegate_entries(log) + skills.entries()
     history = _SESSION["items"] if follow_up else None
     if not follow_up:
         reset_session()

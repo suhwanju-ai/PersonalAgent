@@ -75,6 +75,9 @@ lab/llm.py                  OpenRouter 또는 Ollama 호환 Chat Completions 호
 lab/tools.py                내장 도구 memo_tool_1/2/3/4 (검색·저장·삭제·수정)
 lab/registry.py             내장 도구 + MCP 도구를 한 목록으로. 설명문 덮어쓰기
 lab/mcp_client.py           MCP 클라이언트 — stdio 와 Streamable HTTP
+lab/skills.py               skills/<이름>/SKILL.md를 읽어 use_skill 도구로 제공
+lab/html_render.py          마크다운·JSON을 디자인된 HTML 문서로 변환(render_html 도구)
+skills/                     스킬 폴더. 기본 제공: html
 lab/runner.py               도구를 쓰는 대화 루프. 결정은 LLM, 실행은 이 파일
 lab/roles.py                세 역할의 지시문과 도구 배분
 lab/orchestrator.py         자식 프로세스 기동·종료, delegate_* 도구, 위임 로그, 후속 질의 세션
@@ -130,6 +133,15 @@ static/                     index.html · app.js · style.css
   연구원을 띄우는 동안에는 `starting`으로 표시됩니다.
   [중지]도 같은 이유로 락 밖(`/api/research/stop`)에서 받습니다. 이미 맡겨 둔 일을
   끊지는 못하고, 다음 차례를 시작하지 않는 방식입니다.
+
+## 스킬
+
+도구 탭 오른쪽의 **스킬** 카드에서 추가·수정·삭제할 수 있고(이름, 설명, 쓸 도구, 지침), 저장하면 다음 요청부터 적용됩니다. 파일로 `skills/<이름>/SKILL.md`를 직접 넣어도 됩니다(앱을 다시 켤 필요 없음). 파일 맨 위 `---` 사이에 `name`, `description`(선택: `tools`)을 쓰고, 그 아래에 사용 지침을 씁니다. Claude Code의 SKILL.md와 같은 형식이라 폴더를 복사해 올 수 있습니다.
+
+- 모델에게는 `use_skill` 도구 하나로 보이고, 도구 설명에 스킬 이름과 설명만 실립니다. 모델이 필요하다고 판단하면 `use_skill(이름)`으로 본문 지침을 읽습니다.
+- 기본 제공 `html` 스킬은 `render_html` 도구로 마크다운 본문을 디자인된 HTML 문서로 바꿉니다. 결과는 답변에 미리보기와 [다운로드] 버튼으로 나오고, 파일은 `state/outputs/`에 최근 50개까지 남습니다. 디자인은 `ledger`(남색·금색)와 `dossier`(녹색·주황) 두 가지입니다.
+- 스킬은 **코드를 실행하지 않습니다.** 지침 글과 `lab/skills.py`의 `SKILL_TOOLS`에 있는 내장 도구만 쓸 수 있고, 폴더에 파이썬 파일을 넣어도 읽지 않습니다. `tools:`에 적은 이름이 `SKILL_TOOLS`에 없으면 무시합니다.
+- 도구 탭과 에이전트 탭의 연구책임자가 스킬을 씁니다. 자료조사·실험수행 연구원에게는 주지 않습니다.
 
 ## Python 코드 실행
 

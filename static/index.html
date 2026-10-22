@@ -9,7 +9,7 @@
 <link rel="alternate icon" href="/static/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
-<link rel="stylesheet" href="/static/style.css?v=agents-grid-18">
+<link rel="stylesheet" href="/static/style.css?v=agents-grid-21">
 </head>
 <body>
 <header class="top">
@@ -84,6 +84,11 @@
       <div class="card-head"><h2>모델에 제공되는 도구</h2><span class="count" id="chipTools">0개</span></div>
       <div id="activeToolList" class="active-tool-list"></div>
       <button class="manage-link" id="goMcp">MCP 탭에서 관리 <span aria-hidden="true">→</span></button>
+    </section>
+    <section class="card skills-card">
+      <div class="card-head"><div><h2>스킬</h2><span class="subtle">모델이 필요할 때 지침을 읽습니다</span></div><span class="count" id="chipSkills">0개</span></div>
+      <div id="skillList" class="skill-list"></div>
+      <button class="manage-link" id="addSkill" type="button">스킬 추가 <span aria-hidden="true">+</span></button>
     </section>
   </aside>
 </main>
@@ -184,6 +189,24 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=tab-layout-reset-15"></script>
+<dialog id="skillDialog" aria-labelledby="skillDialogTitle">
+  <div class="card-head"><div><h2 id="skillDialogTitle">스킬</h2><span class="subtle">저장하면 다음 요청부터 적용됩니다</span></div>
+    <div class="head-actions"><button class="ghost" id="deleteSkill" type="button">삭제</button><button class="primary compact" id="saveSkill" type="button">저장</button><button class="ghost" id="closeSkill" type="button">닫기</button></div></div>
+  <details class="skill-import" id="skillImport">
+    <summary>SKILL.md를 붙여 넣어 채우기</summary>
+    <textarea id="skillImportText" rows="6" spellcheck="false" placeholder="---&#10;name: my-skill&#10;description: 언제 쓰는지&#10;---&#10;&#10;# 지침 …"></textarea>
+    <div class="skill-import-bar"><span id="skillImportNote" class="meta" aria-live="polite"></span><button class="ghost compact" id="skillImportRun" type="button">아래 칸에 채우기</button></div>
+  </details>
+  <div class="skill-form">
+    <label for="skillName">이름</label><input id="skillName" type="text" maxlength="40" autocomplete="off" placeholder="예: report-style (영문 소문자·숫자·-·_)">
+    <label for="skillDesc">설명</label><input id="skillDesc" type="text" maxlength="300" autocomplete="off" placeholder="언제 쓰는 스킬인지. 모델이 이 설명을 보고 읽을지 정합니다">
+    <label>쓸 도구</label><div id="skillTools" class="skill-tools"></div>
+    <label for="skillBody">지침</label><textarea id="skillBody" rows="14" maxlength="20000" spellcheck="false" placeholder="모델이 따를 지침을 씁니다"></textarea>
+  </div>
+  <p class="hint role-prompt-hint">스킬은 글과 도구 이름만 담고 코드를 실행하지 않습니다. 쓸 수 있는 도구는 앱에 등록된 것만 고를 수 있습니다. 설명이 구체적일수록 모델이 알맞은 때 읽습니다.</p>
+  <div id="skillNote" class="meta role-prompt-note" aria-live="polite"></div>
+</dialog>
+
+<script src="/static/app.js?v=tab-layout-reset-19"></script>
 </body>
 </html>
