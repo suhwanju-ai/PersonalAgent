@@ -203,7 +203,7 @@ $("mcpAddForm").addEventListener("submit", async (ev) => {
   button.textContent = "연결 중…";
   $("mcpAddNote").textContent = "";
   try {
-    const result = await post("/api/mcp/add", { name, url: $("mcpUrl").value.trim() });
+    const result = await post("/api/mcp/add", { name, url: $("mcpUrl").value.trim(), headers: $("mcpHeaders").value, fixed_args: $("mcpFixedArgs").value });
     if (!result.ok) {
       $("mcpAddNote").textContent = result.message || "추가하지 못했습니다.";
     } else {
@@ -212,6 +212,8 @@ $("mcpAddForm").addEventListener("submit", async (ev) => {
         : `${name} 서버를 목록에 추가했지만 도구를 받지 못했습니다. 화면 위쪽의 오류 문구를 확인하세요. 주소를 고치려면 삭제 후 다시 추가하세요.`;
       $("mcpName").value = "";
       $("mcpUrl").value = "";
+      $("mcpHeaders").value = "";
+      $("mcpFixedArgs").value = "";
       await refresh();
     }
   } catch (error) {
@@ -219,6 +221,29 @@ $("mcpAddForm").addEventListener("submit", async (ev) => {
   }
   button.disabled = false;
   button.textContent = "추가하고 연결";
+});
+
+$("mcpJsonForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const button = $("mcpJsonAdd");
+  button.disabled = true;
+  button.textContent = "연결 중…";
+  $("mcpAddNote").textContent = "";
+  try {
+    const result = await post("/api/mcp/add_json", { json: $("mcpJson").value });
+    if (!result.ok) {
+      $("mcpAddNote").textContent = result.message || "추가하지 못했습니다.";
+    } else {
+      const skipped = result.problems && result.problems.length ? ` 건너뜀: ${result.problems.join(" / ")}` : "";
+      $("mcpAddNote").textContent = `${result.added.join(", ")} 서버를 추가하고 도구 ${result.tools}개를 연결했습니다.${skipped}`;
+      $("mcpJson").value = "";
+      await refresh();
+    }
+  } catch (error) {
+    $("mcpAddNote").textContent = "서버에 연결하지 못했습니다. 다시 시도하세요.";
+  }
+  button.disabled = false;
+  button.textContent = "JSON으로 추가";
 });
 
 function drawErrors() {
@@ -359,6 +384,48 @@ function drawChat(turns) {
 
 $("goMcp").addEventListener("click", () => document.querySelector('.tab[data-tab="mcp"]').click());
 
+/* ── HTML 결과 미리보기 ──────────────────────────────── */
+/* 답변에 완성된 HTML 문서가 있으면 소스 대신 화면으로 그리고 [다운로드]를 붙인다.
+   iframe은 sandbox=""(스크립트·같은 출처 접근 없음)에 CSP로 외부 요청을 막아, 모델이 만든 HTML이 앱에 손대지 못하게 한다. */
+const HTML_DOCS = new Map();   // 해시 -> 원문. 다시 그려도 같은 글은 한 번만 담긴다.
+const attr = (s) => esc(s).replace(/"/g, "&quot;");
+function hashText(t) {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return h.toString(36) + t.length.toString(36);
+}
+function injectHead(html, tag) {
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + tag);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => m + "<head>" + tag + "</head>");
+  return tag + html;
+}
+const looksLikeHtmlDoc = (t) => /^\s*(<!doctype\s+html|<html[\s>])/i.test(t);
+function htmlPreview(source) {
+  const key = hashText(source);
+  HTML_DOCS.set(key, source);
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src data:">`;
+  const titled = /<title[^>]*>([^<]*)<\/title>/i.exec(source);
+  const name = titled && titled[1].trim() ? titled[1].trim() : "HTML 결과";
+  return `<div class="html-result"><div class="html-result-bar"><b>${esc(name)}</b>`
+    + `<button type="button" class="ghost compact html-download" data-doc="${key}">다운로드</button></div>`
+    + `<iframe class="html-frame" sandbox="" title="${attr(name)}" srcdoc="${attr(injectHead(source, csp))}"></iframe>`
+    + `<details class="html-src"><summary>소스 보기</summary><pre><code>${esc(source)}</code></pre></details></div>`;
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest(".html-download");
+  if (!b || !HTML_DOCS.has(b.dataset.doc)) return;
+  let html = HTML_DOCS.get(b.dataset.doc);
+  if (!/<meta[^>]+charset/i.test(html)) html = injectHead(html, '<meta charset="utf-8">');   // 로컬에서 열 때 한글이 깨지지 않게
+  const d = new Date(), z = (n) => String(n).padStart(2, "0");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+  a.download = `result-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
 /* ── 마크다운 ────────────────────────────────────────── */
 /* 모델 답변에 흔히 나오는 것만 그린다 — 제목, 목록, 굵게·기울임, 코드. 외부 라이브러리 없이.
    먼저 HTML을 이스케이프하므로 모델이 태그를 보내도 그대로 글자로 보인다. */
@@ -370,16 +437,26 @@ function md(src) {
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<i>$2</i>");
   const lines = String(src == null ? "" : src).replace(/\r\n/g, "\n").split("\n");
   const out = [];
-  let list = null, para = [], code = null, gap = false, math = null;
+  let list = null, para = [], code = null, codeLang = "", gap = false, math = null, rawHtml = null;
   const flushPara = () => { if (para.length) { out.push(`<p>${para.join("<br>")}</p>`); para = []; } };
   const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`); list = null; } gap = false; };
   // 모델이 가끔 수식을 LaTeX로 쓴다. 렌더링 도구가 없으므로 기호만 바꿔 고정폭 상자에 보여 준다.
   const plainMath = (s) => s.replace(/\\times/g, "×").replace(/\\cdot/g, "·").replace(/\\le\b/g, "≤").replace(/\\ge\b/g, "≥")
     .replace(/\\sum/g, "Σ").replace(/\\pm/g, "±").replace(/\{,\}/g, ",").replace(/\\text\{([^}]*)\}/g, "$1")
     .replace(/\\[a-zA-Z]+/g, "").replace(/[{}]/g, "");
+  const closeCode = () => {
+    const text = code.join("\n");
+    out.push(codeLang === "html" && looksLikeHtmlDoc(text) ? htmlPreview(text) : `<pre><code>${esc(text)}</code></pre>`);
+    code = null;
+  };
   for (const raw of lines) {
+    if (rawHtml !== null) {                       // 코드 블록 없이 그대로 나온 HTML 문서
+      rawHtml.push(raw);
+      if (/<\/html>/i.test(raw)) { out.push(htmlPreview(rawHtml.join("\n"))); rawHtml = null; }
+      continue;
+    }
     if (code !== null) {
-      if (/^```/.test(raw)) { out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); code = null; }
+      if (/^```/.test(raw)) closeCode();
       else code.push(raw);
       continue;
     }
@@ -390,7 +467,8 @@ function md(src) {
     }
     const line = raw.trimEnd();
     let m;
-    if (/^```/.test(line)) { flushPara(); flushList(); code = []; continue; }
+    if (/^```/.test(line)) { flushPara(); flushList(); code = []; codeLang = line.slice(3).trim().toLowerCase(); continue; }
+    if (looksLikeHtmlDoc(line)) { flushPara(); flushList(); rawHtml = [raw]; if (/<\/html>/i.test(raw)) { out.push(htmlPreview(raw)); rawHtml = null; } continue; }
     if (/^\s*\\\[\s*$/.test(line)) { flushPara(); flushList(); math = []; continue; }
     if ((m = line.match(/^\s*\\\[(.*)\\\]\s*$/))) { flushPara(); flushList(); out.push(`<pre class="math">${esc(plainMath(m[1]))}</pre>`); continue; }
     // 빈 줄 — 목록은 바로 닫지 않는다. 모델이 항목 사이에 빈 줄을 두는 일이 잦아,
@@ -432,7 +510,8 @@ function md(src) {
     para.push(inline(line));
   }
   flushPara(); flushList();
-  if (code !== null) out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+  if (code !== null) closeCode();
+  if (rawHtml !== null) out.push(htmlPreview(rawHtml.join("\n")));   // </html>이 없이 끊긴 응답도 보이게 한다
   if (math !== null) out.push(`<pre class="math">${esc(plainMath(math.join(" ")))}</pre>`);
   return out.join("");
 }
@@ -742,8 +821,10 @@ function drawRolePromptState() {
   if (!p) return;
   const draft = ROLE_DRAFTS[p.role];
   const dirty = draft !== undefined && draft !== p.prompt;
-  $("rolePromptState").textContent = dirty ? "저장하지 않은 변경이 있습니다"
+  const label = dirty ? "저장하지 않은 변경이 있습니다"
     : p.edited ? "수정한 지침 사용 중" : "기본 지침 사용 중";
+  $("rolePromptState").textContent = label;
+  $("rolePromptSummary").textContent = ROLE_PROMPTS.map((q) => `${q.label}: ${q.edited ? "수정함" : "기본"}`).join(" · ");
   $("resetRolePrompt").disabled = !p.edited && !dirty;
 }
 
@@ -761,6 +842,17 @@ function drawRolePrompts(prompts) {
   $("rolePrompt").value = ROLE_DRAFTS[p.role] !== undefined ? ROLE_DRAFTS[p.role] : p.prompt;
   drawRolePromptState();
 }
+
+$("openRolePrompt").addEventListener("click", () => {
+  $("rolePromptNote").textContent = "";
+  $("rolePromptDialog").showModal();
+  $("rolePrompt").focus();
+});
+$("closeRolePrompt").addEventListener("click", () => $("rolePromptDialog").close());
+// 어두운 배경(backdrop)을 눌러도 닫는다. 쓰던 글은 ROLE_DRAFTS에 남는다.
+$("rolePromptDialog").addEventListener("click", (ev) => {
+  if (ev.target === $("rolePromptDialog")) $("rolePromptDialog").close();
+});
 
 $("rolePromptRole").addEventListener("change", () => {
   const p = currentRolePrompt();
@@ -981,18 +1073,6 @@ async function runResearch(question, followUp) {
 }
 
 /* ── 예시 질문 칩 ────────────────────────────────────── */
-const QUESTION_CHIPS = [
-  { label: "1차 질문 — F-3 전환 24개월 수익성",
-    text: `F-3 라인을 차세대 공정으로 전환하려고 합니다.
-전환 직후에는 수율이 낮고, 몇 달에 걸쳐 성숙 수율까지 올라간다고 가정합니다.
-
-제공된 사업 가정(line_transition.csv)을 바탕으로 적절한 분석 방법을 조사하고,
-시뮬레이션을 설계하여 실제 파이썬 코드로 실행하세요.
-24개월 동안의 누적 영업이익 분포와 적자 발생 확률을 분석하고,
-결과에 가장 큰 영향을 미치는 변수를 찾아주세요.
-
-정량 결과는 실제 코드 실행 결과를 사용하세요.` },
-];
 const FOLLOW_CHIPS = [
   { label: "후속 — 램프 기간 8·14·20개월",
     text: "공정 안정화가 예상보다 늦어져 수율 램프 기간이 최소 8개월, 기준 14개월, 최대 20개월이라면 어떻게 되나? 나머지 조건과 확률변수를 뽑는 방식은 그대로 두고 다시 계산해 줘." },
@@ -1010,9 +1090,6 @@ function drawChips(boxId, chips, targetId) {
     });
   });
 }
-drawChips("questionChips", QUESTION_CHIPS, "question");
-// 첫 화면에서 바로 시작할 수 있게 예시를 채운다. 작성 중인 입력은 보존한다.
-if (!$("question").value.trim()) $("question").value = QUESTION_CHIPS[0].text;
 drawChips("followChips", FOLLOW_CHIPS, "followQuestion");
 
 async function agentsAll(path, button, busyText) {

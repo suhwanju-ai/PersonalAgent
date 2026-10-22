@@ -131,7 +131,9 @@ def call(system_prompt, items, declarations, web_search=False, temperature=None,
     if web_search and settings["provider"] == "openrouter":
         # OpenRouter의 :online 라우팅은 tool calling과 동시 사용이 제한될 수 있으므로
         # 검색을 웹 검색 전용 tool로 요청한다.
-        payload["plugins"] = [{"id": "web", "engine": "native"}]
+        # engine을 지정하지 않으면 OpenRouter가 모델이 지원할 때는 내장 검색을, 아니면 Exa를 고른다.
+        # "native"로 못박으면 gpt-4o-mini처럼 내장 검색이 없는 모델에서 404가 난다.
+        payload["plugins"] = [{"id": "web"}]
 
     started = time.time()
     data = _post(payload, settings, retries=1)

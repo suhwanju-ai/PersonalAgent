@@ -68,7 +68,7 @@ def expand_env(value):
 # ── 로컬 stdio 서버 ───────────────────────────────────────────────────
 
 class StdioServer(object):
-    def __init__(self, name, command, args, cwd):
+    def __init__(self, name, command, args, cwd, env=None):
         self.name = name
         self._next_id = 0
         self._queue = queue.Queue()
@@ -81,7 +81,7 @@ class StdioServer(object):
             "stdout": subprocess.PIPE,
             "stderr": subprocess.DEVNULL,
             "cwd": cwd,
-            "env": _child_env(),
+            "env": _child_env(env),
         }
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000        # CREATE_NO_WINDOW
@@ -162,8 +162,9 @@ def _resolve_path(value, cwd):
     return value
 
 
-def _child_env():
+def _child_env(extra=None):
     env = dict(os.environ)
+    env.update(extra or {})
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     return env
@@ -171,20 +172,131 @@ def _child_env():
 
 # ── 원격 HTTP 서버 ────────────────────────────────────────────────────
 
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+# 프로토콜이 쓰는 헤더는 덮어쓰지 못하게 한다. 요청이 깨지거나 다른 호스트로 새는 것을 막는다.
+_RESERVED_HEADERS = {"content-type", "accept", "content-length", "host", "connection",
+                     "transfer-encoding", "mcp-session-id", "mcp-protocol-version"}
+
+
+def clean_headers(value):
+    """원격 서버에 덧붙일 헤더를 검증해 {이름: 값}으로 돌려준다. 잘못되면 ValueError(한국어 문구).
+
+    값에는 ${VAR}를 쓸 수 있고, 치환은 연결할 때 한다. 여기서는 형식만 본다.
+    """
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("헤더 형식이 올바르지 않습니다.")
+    if len(value) > 20:
+        raise ValueError("헤더는 20개까지 쓸 수 있습니다.")
+    out = {}
+    for key, val in value.items():
+        if not isinstance(key, str) or not _HEADER_NAME.match(key) or len(key) > 100:
+            raise ValueError("헤더 이름이 올바르지 않습니다: %s" % str(key)[:40])
+        if key.lower() in _RESERVED_HEADERS:
+            raise ValueError("'%s' 헤더는 앱이 직접 쓰므로 지정할 수 없습니다." % key)
+        if not isinstance(val, str) or not val.strip() or len(val) > 2000:
+            raise ValueError("'%s' 헤더의 값을 1~2000자로 입력해 주세요." % key)
+        if any(ord(c) < 32 or ord(c) == 127 for c in val):
+            raise ValueError("'%s' 헤더의 값에 줄바꿈이나 제어 문자를 쓸 수 없습니다." % key)
+        out[key] = val.strip()
+    return out
+
+
+def parse_header_lines(text):
+    """화면에서 줄마다 '이름: 값'으로 적은 헤더를 dict로 바꾼다. 형식이 틀리면 ValueError."""
+    out = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        key, sep, val = line.partition(":")
+        if not sep:
+            raise ValueError("헤더는 '이름: 값' 형식으로 한 줄에 하나씩 적어 주세요.")
+        out[key.strip()] = val.strip()
+    return clean_headers(out)
+
+
+def clean_fixed_args(value):
+    """모든 도구 호출에 자동으로 합쳐 보낼 고정 인자를 검증해 {이름: 값}으로 돌려준다.
+
+    본문(arguments)에 인증 값을 요구하는 서버용이다. 값에는 ${VAR}를 쓸 수 있다.
+    """
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("고정 인자 형식이 올바르지 않습니다.")
+    if len(value) > 20:
+        raise ValueError("고정 인자는 20개까지 쓸 수 있습니다.")
+    out = {}
+    for key, val in value.items():
+        if not isinstance(key, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$", key):
+            raise ValueError("고정 인자 이름이 올바르지 않습니다: %s" % str(key)[:40])
+        if not isinstance(val, str) or not val.strip() or len(val) > 2000:
+            raise ValueError("'%s' 고정 인자의 값을 1~2000자로 입력해 주세요." % key)
+        out[key] = val.strip()
+    return out
+
+
+def parse_fixed_arg_lines(text):
+    """화면에서 줄마다 '이름: 값' 또는 '이름=값'으로 적은 고정 인자를 dict로 바꾼다."""
+    out = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        positions = [p for p in (line.find(":"), line.find("=")) if p > 0]
+        if not positions:
+            raise ValueError("고정 인자는 '이름: 값' 형식으로 한 줄에 하나씩 적어 주세요.")
+        cut = min(positions)
+        out[line[:cut].strip()] = line[cut + 1:].strip()
+    return clean_fixed_args(out)
+
+
+def parse_servers_json(text):
+    """붙여 넣은 {"mcpServers": {이름: {url, headers}}} JSON을 [(이름, url, headers, fixed_args)]로 바꾼다.
+
+    이름: {...}만 있는 형태도 받는다. 원격(url) 서버만 허용한다.
+    """
+    try:
+        data = json.loads(text or "")
+    except ValueError:
+        raise ValueError("JSON 형식이 올바르지 않습니다. 괄호와 따옴표를 확인해 주세요.")
+    if isinstance(data, dict) and isinstance(data.get("mcpServers"), dict):
+        data = data["mcpServers"]
+    if not isinstance(data, dict) or not data:
+        raise ValueError('{"mcpServers": {"서버이름": {"url": ...}}} 형식이어야 합니다.')
+    if len(data) > 20:
+        raise ValueError("한 번에 20개까지만 추가할 수 있습니다.")
+    out = []
+    for name, spec in data.items():
+        if not isinstance(spec, dict):
+            raise ValueError("'%s' 항목은 {...} 형식이어야 합니다." % name)
+        if "command" in spec:
+            raise ValueError("'%s'은(는) 명령을 실행하는 서버라 화면에서 추가할 수 없습니다. 원격(url) 서버만 가능합니다." % name)
+        url = spec.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("'%s' 항목에 url이 없습니다." % name)
+        out.append((name, url.strip(), spec.get("headers"), spec.get("fixed_args")))
+    return out
+
+
 class HttpServer(object):
-    def __init__(self, name, url):
+    def __init__(self, name, url, headers=None):
         self.name = name
         self.url = url
+        self.extra_headers = dict(headers or {})
         self.session = None
         self._next_id = 0
         self._lock = threading.Lock()
 
     def _post(self, payload, timeout=30):
-        headers = {
+        headers = dict(self.extra_headers)
+        headers.update({
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
             "MCP-Protocol-Version": PROTOCOL_VERSION,
-        }
+        })
         if self.session:
             headers["Mcp-Session-Id"] = self.session
         request = urllib.request.Request(
@@ -338,15 +450,22 @@ def read_config(path):
 
 def _connect_one(name, spec, cwd):
     if spec.get("url"):
-        # 치환한 주소는 여기서만 쓰고 파일에도 로그에도 남기지 않는다.
-        server = HttpServer(name, expand_env(spec["url"]))
+        # 치환한 주소와 헤더 값은 여기서만 쓰고 파일에도 로그에도 남기지 않는다.
+        headers = {k: expand_env(v) for k, v in clean_headers(spec.get("headers")).items()}
+        server = HttpServer(name, expand_env(spec["url"]), headers)
     elif spec.get("command"):
         args = [expand_env(a) for a in (spec.get("args") or [])]
-        server = StdioServer(name, expand_env(spec["command"]), args, cwd)
+        env = spec.get("env") or {}
+        if not isinstance(env, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
+            raise IOError("env 형식이 올바르지 않습니다.")
+        server = StdioServer(name, expand_env(spec["command"]), args, cwd,
+                             {k: expand_env(v) for k, v in env.items()})
         LAUNCH_LOG.append((name, spec["command"], server.executable))
     else:
         raise IOError("연결 정보가 없습니다.")
 
+    fixed = {k: expand_env(v) for k, v in clean_fixed_args(spec.get("fixed_args")).items()}
     server.request("initialize", {
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {},
@@ -363,17 +482,33 @@ def _connect_one(name, spec, cwd):
         entries.append({
             "name": tool_name,
             "description": (tool.get("description") or "").strip(),
-            "parameters": clean_schema(tool.get("inputSchema")),
+            "parameters": _hide_fixed(clean_schema(tool.get("inputSchema")), fixed),
             "source": name,
-            "call": _make_caller(server, tool_name),
+            "call": _make_caller(server, tool_name, fixed),
         })
     return server, entries
 
 
-def _make_caller(server, tool_name):
+def _hide_fixed(schema, fixed):
+    """고정 인자는 모델에게 보이지 않게 스키마에서 뺀다. 모델이 키를 묻거나 지어내지 않고, 요청에도 실리지 않는다."""
+    if not fixed or not isinstance(schema, dict):
+        return schema
+    schema = dict(schema)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        schema["properties"] = {k: v for k, v in props.items() if k not in fixed}
+    if isinstance(schema.get("required"), list):
+        schema["required"] = [k for k in schema["required"] if k not in fixed]
+    return schema
+
+
+def _make_caller(server, tool_name, fixed=None):
     def call(args):
+        # 고정 인자가 모델이 넣은 같은 이름의 값보다 우선한다.
+        merged = dict(args or {})
+        merged.update(fixed or {})
         try:
-            result = server.request("tools/call", {"name": tool_name, "arguments": args or {}}, 60)
+            result = server.request("tools/call", {"name": tool_name, "arguments": merged}, 60)
         except Exception as exc:
             return {"오류": "도구를 실행하지 못했습니다.", "내용": str(exc)[:200]}
         return _result_text(result)

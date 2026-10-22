@@ -348,10 +348,25 @@ RESERVED_SOURCES = ("내장", "위임", "알 수 없음")
 def _mcp_add(p):
     """주소(Streamable HTTP)로 MCP 서버를 추가하고 바로 연결한다.
 
-    키가 필요하면 주소에 ${API_KEY}처럼 이름만 적는다. 값은 연결할 때 .env에서 채운다.
+    키가 필요하면 주소나 헤더 값에 ${API_KEY}처럼 이름만 적는다. 값은 연결할 때 .env에서 채운다.
+    headers는 "이름: 값" 줄 목록(문자열) 또는 {이름: 값}이다. 예: Authorization: Bearer ${API_KEY}
+    fixed_args는 같은 형식이며 모든 도구 호출의 인자에 자동으로 합쳐지고 모델에게는 보이지 않는다.
+    인증을 헤더가 아닌 도구 인자(api_key 등)로 받는 서버용이다.
     """
     name = " ".join((p.get("name") or "").split())
     url = (p.get("url") or "").strip()
+    raw_headers = p.get("headers")
+    try:
+        headers = (mcp_client.parse_header_lines(raw_headers) if isinstance(raw_headers, str)
+                   else mcp_client.clean_headers(raw_headers))
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    raw_fixed = p.get("fixed_args")
+    try:
+        fixed = (mcp_client.parse_fixed_arg_lines(raw_fixed) if isinstance(raw_fixed, str)
+                 else mcp_client.clean_fixed_args(raw_fixed))
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
     if not name:
         return {"ok": False, "message": "서버 이름을 입력해 주세요."}
     if len(name) > 40:
@@ -364,8 +379,16 @@ def _mcp_add(p):
         return {"ok": False, "message": "주소는 http:// 또는 https://로 시작해야 합니다."}
 
     custom = custom_servers()
-    custom[name] = {"label": name, "detail": "직접 추가한 원격 서버 · %s" % url,
-                    "spec": {"url": url}, "custom": True}
+    spec = {"url": url}
+    detail = "직접 추가한 원격 서버 · %s" % url
+    if headers:
+        spec["headers"] = headers
+        # 값은 비밀일 수 있으니 이름만 보여 준다.
+        detail += " · 헤더 %s" % ", ".join(headers)
+    if fixed:
+        spec["fixed_args"] = fixed
+        detail += " · 고정 인자 %s" % ", ".join(fixed)
+    custom[name] = {"label": name, "detail": detail, "spec": spec, "custom": True}
     write_custom_servers(custom)
 
     live = connected_names()
@@ -375,6 +398,26 @@ def _mcp_add(p):
     entries, errors = registry.build()
     count = sum(1 for e in entries if e["source"] == name)
     return {"ok": True, "tools": count, "errors": errors}
+
+
+@route("/api/mcp/add_json")
+def _mcp_add_json(p):
+    """Claude Desktop 식 {"mcpServers": {...}} JSON을 붙여 넣어 원격 서버를 한꺼번에 추가한다."""
+    try:
+        servers = mcp_client.parse_servers_json(p.get("json"))
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    added, problems, tools = [], [], 0
+    for name, url, headers, fixed in servers:
+        result = _mcp_add({"name": name, "url": url, "headers": headers, "fixed_args": fixed})
+        if result.get("ok"):
+            added.append(name)
+            tools += result.get("tools", 0)
+        else:
+            problems.append("%s: %s" % (name, result.get("message")))
+    if not added:
+        return {"ok": False, "message": " / ".join(problems)}
+    return {"ok": True, "added": added, "tools": tools, "problems": problems}
 
 
 @route("/api/mcp/remove")
