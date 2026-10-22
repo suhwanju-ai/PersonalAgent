@@ -59,7 +59,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 {
   "tools": [{"name": "memo_tool_1", "source": "내장"}],
   "disabled_tools": [{"source": "국가법령", "name": "get_annexes"}],
-  "skills": {"skills": [{"name": "html", "description": "...", "tools": ["render_html"], "body": "..."}],
+  "skills": {"skills": [{"name": "html", "description": "...", "tools": ["render_html"]}],
              "tools": [{"name": "render_html", "description": "..."}]},
   "context_window": {"phase": "ready", "...": "측정값"},
   "chat": [{"message": "...", "answer": "...", "calls": [], "at": 1760000000.0}],
@@ -125,6 +125,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 | `/api/mcp/remove` | `{name}` | `{ok, errors}` | 잡음 |
 | `/api/mcp/tool/remove` · `/restore` | `{source, name}` | `{ok}` | 잡음 |
 | `/api/skills/save` | `{name, description, tools, body}` | `{ok, name, skills}` | 잡음 |
+| `/api/skills/get` | `{name}` | `{ok, skill: {name, description, tools, body}}` | 잡음 |
 | `/api/skills/delete` | `{name}` | `{ok, skills}` | 잡음 |
 
 ### 3.1 도구 탭
@@ -184,7 +185,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 ### 3.4 MCP
 
 - `/api/mcp/toggle`: 카탈로그에 있는 서버만 켜고 끈다. 결과를 `mcp_config.json`에 쓰고 연결을 초기화한다.
-- `/api/mcp/add`: 이름 40자 이하, 예약어 `내장`·`위임`·`스킬`·`알 수 없음` 불가, 중복 불가, 주소는 `http://` 또는 `https://`이며 공백 불가. `headers`는 `이름: 값` 줄 문자열 또는 `{이름: 값}` 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, `Host`·`Content-Type`·`Accept`·`Mcp-*` 등 예약 헤더 불가. 키는 주소와 헤더 값에 `${변수명}`으로 적으면 연결 시점에 `.env`에서 채운다. 추가 즉시 연결한다. `fixed_args`는 `이름: 값` 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 `tools/call` 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다.
+- `/api/mcp/add`: 이름 40자 이하, 예약어 `내장`·`위임`·`스킬`·`알 수 없음` 불가, 중복 불가, 주소는 `http://` 또는 `https://`이며 공백 불가. `headers`는 `이름: 값` 줄 문자열 또는 `{이름: 값}` 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, `Host`·`Content-Type`·`Accept`·`Mcp-*` 등 예약 헤더 불가. 키는 주소와 헤더 값에 `${변수명}`으로 적으면 연결 시점에 `.env`에서 채운다. 추가 즉시 연결한다. `fixed_args`는 `이름: 값` 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 `tools/call` 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다. 서버가 오류 글에 받은 인자를 되돌려 줘도 고정 인자 값은 `***`로 가려 모델과 대화 기록에 넘긴다(4자 이상인 값).
 - `/api/mcp/add_json`: Claude Desktop 식 `{"mcpServers": {이름: {url, headers?, fixed_args?}}}`(또는 `{이름: {...}}`만)를 붙여 넣어 한꺼번에 추가한다. 한 번에 20개까지. **원격(`url`) 서버만** 받고 `command`가 있는 항목은 이유와 함께 거절한다(화면에서 명령 실행 서버를 추가하는 것은 막는다). 항목마다 `/api/mcp/add`와 같은 검사를 거치며, 일부만 실패하면 성공한 서버는 추가하고 실패한 것은 `problems`에 `이름: 이유`로 돌려준다. 모두 실패하면 `ok: false`.
 - `/api/mcp/remove`: **직접 추가한 서버만** 삭제 가능(`state/mcp_custom.json`). 기본 카탈로그 서버는 연결만 끊을 수 있다.
 - `/api/mcp/tool/remove`·`restore`: 서버 단위가 아닌 **도구 단위**로 제외/복원 (`state/disabled_mcp_tools.json`).
@@ -192,8 +193,10 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 ### 3.5 스킬
 
 - `/api/skills/save`: 스킬 한 개를 추가하거나 고친다. 이름은 `^[a-z0-9][a-z0-9_-]{0,39}$`(폴더 이름으로 쓰므로 경로를 우회할 수 없다), 설명 1~300자, 지침 1~20,000자, `tools`는 `lab/skills.py`의 `SKILL_TOOLS`에 있는 이름만(현재 `render_html`). 스킬은 30개까지. 같은 이름이 있으면 그 폴더의 `SKILL.md`를 덮어쓴다. 저장하면 다음 요청부터 모델에게 보이며 앱을 다시 켤 필요가 없다. 틀리면 `{ok: false, message}`.
+- `/api/skills/get`: 스킬 한 개의 본문까지 돌려준다. `/api/state`의 `skills` 목록에는 이름·설명·도구만 있고 본문은 없다(상태를 자주 읽는데 스킬마다 최대 2만 자가 실리는 것을 피하려고). 편집 팝업이 열릴 때 부른다.
 - `/api/skills/delete`: `skills/<폴더>/SKILL.md`를 지우고 폴더가 비면 폴더도 지운다. 되돌릴 수 없다.
 - 스킬은 **코드를 실행하지 않는다.** 글(지침)과 코드에 등록된 도구 이름만 담는다.
+- `SKILL.md`는 80KB까지 읽는다(지침 2만 자 + 머리말, 한글은 글자당 3바이트). 넘거나 이름 형식이 틀려 읽지 못한 스킬은 목록에서 빠지되 화면 위쪽 오류 띠에 `○○ 스킬이 너무 커서 건너뛰었습니다` 같은 안내가 나온다.
 
 ## 4. 연구원 서버 (:8771 / :8772)
 
@@ -225,4 +228,4 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 - **인증**: 루프백은 없음. 신뢰 origin은 Basic 인증(`APP_ACCESS_TOKEN`). 토큰이 없으면 신뢰 origin 접속 자체를 거부한다.
 - **비율 제한**: 앱 자체에는 없다. 모델 쪽 429만 처리한다.
 - **페이지네이션**: 없다. 대화 기록은 최근 30턴(`CHAT_MAX_TURNS`)만 유지한다.
-- **에러 응답 형식**: 보안 검사 실패는 `{"ok": false, "message": "..."}` + 4xx(GET은 text/plain). 업무 실패는 HTTP 200 + `ok: false`.
+- **에러 응답 형식**: 보안 검사 실패는 `{"ok": false, "message": "..."}` + 4xx(GET은 text/plain). 업무 실패는 HTTP 200 + `ok: false`. 처리기가 예상 밖의 예외를 내도(값 형식이 틀린 요청 등) 연결을 끊지 않고 HTTP 200 + `{"ok": false, "message": "요청 값의 형식이 올바르지 않거나 처리 중 오류가 났습니다."}`를 돌려주며, 원인은 서버 콘솔에 남는다.

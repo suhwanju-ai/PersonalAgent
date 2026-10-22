@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -431,9 +432,19 @@ def _skill_save(p):
     return {"ok": True, "name": name, "skills": skills.view()}
 
 
+@route("/api/skills/get")
+def _skill_get(p):
+    """편집 팝업이 스킬 본문을 받는다. 상태 목록에는 본문이 없다."""
+    skill = skills.get((p.get("name") or "").strip() if isinstance(p.get("name"), str) else "")
+    if skill is None:
+        return {"ok": False, "message": "그런 스킬이 없습니다."}
+    return {"ok": True, "skill": skill}
+
+
 @route("/api/skills/delete")
 def _skill_delete(p):
-    if not skills.remove((p.get("name") or "").strip()):
+    name = p.get("name")
+    if not isinstance(name, str) or not skills.remove(name.strip()):
         return {"ok": False, "message": "그런 스킬이 없습니다."}
     return {"ok": True, "skills": skills.view()}
 
@@ -482,6 +493,15 @@ def _mcp_tool_restore(p):
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────
+
+def _run(handler, payload):
+    """처리기가 예상 밖의 예외를 내도 응답은 돌려준다. 값 형식이 틀린 요청(객체 대신 글자 등)에 연결이 끊기지 않게 한다."""
+    try:
+        return handler(payload)
+    except Exception:                                   # noqa: BLE001
+        traceback.print_exc()                           # 콘솔에는 남겨 원인을 볼 수 있게 한다
+        return {"ok": False, "message": "요청 값의 형식이 올바르지 않거나 처리 중 오류가 났습니다."}
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -571,10 +591,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "요청을 읽지 못했습니다."}, 400)
             return
         if path in NO_LOCK:
-            self._json(handler(payload))        # 연구가 도는 중에도 받아야 한다
+            self._json(_run(handler, payload))  # 연구가 도는 중에도 받아야 한다
         else:
             with LOCK:
-                self._json(handler(payload))
+                self._json(_run(handler, payload))
 
 
 def main():

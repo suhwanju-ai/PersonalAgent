@@ -292,6 +292,8 @@ sequenceDiagram
     participant FS as skills 폴더
     participant RG as registry
 
+    B->>A: POST /api/skills/get name (수정 팝업을 열 때 본문 받기)
+    A-->>B: ok, skill
     B->>A: POST /api/skills/save name, description, tools, body
     A->>SK: save(...)
     SK->>SK: 이름 형식, 길이, 허용된 도구인지 검사

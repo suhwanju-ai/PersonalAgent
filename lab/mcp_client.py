@@ -258,8 +258,10 @@ def parse_servers_json(text):
 
     이름: {...}만 있는 형태도 받는다. 원격(url) 서버만 허용한다.
     """
+    if not isinstance(text, str):
+        raise ValueError("JSON 글자를 붙여 넣어 주세요.")
     try:
-        data = json.loads(text or "")
+        data = json.loads(text)
     except ValueError:
         raise ValueError("JSON 형식이 올바르지 않습니다. 괄호와 따옴표를 확인해 주세요.")
     if isinstance(data, dict) and isinstance(data.get("mcpServers"), dict):
@@ -503,6 +505,14 @@ def _hide_fixed(schema, fixed):
 
 
 def _make_caller(server, tool_name, fixed=None):
+    secrets = [v for v in (fixed or {}).values() if isinstance(v, str) and len(v) >= 4]
+
+    def mask(text):
+        # 서버가 오류 글에 받은 인자를 되돌려 주면 고정 인자 값이 모델과 대화 기록으로 흘러간다.
+        for secret in secrets:
+            text = text.replace(secret, "***")
+        return text
+
     def call(args):
         # 고정 인자가 모델이 넣은 같은 이름의 값보다 우선한다.
         merged = dict(args or {})
@@ -510,8 +520,11 @@ def _make_caller(server, tool_name, fixed=None):
         try:
             result = server.request("tools/call", {"name": tool_name, "arguments": merged}, 60)
         except Exception as exc:
-            return {"오류": "도구를 실행하지 못했습니다.", "내용": str(exc)[:200]}
-        return _result_text(result)
+            return {"오류": "도구를 실행하지 못했습니다.", "내용": mask(str(exc))[:200]}
+        out = _result_text(result)
+        if not secrets:
+            return out
+        return {"오류": mask(out["오류"])} if isinstance(out, dict) else mask(out)
     return call
 
 

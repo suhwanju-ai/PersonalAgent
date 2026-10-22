@@ -20,7 +20,14 @@ from . import config, html_render
 SKILLS_DIR = os.path.join(config.ROOT, "skills")
 SOURCE = "스킬"
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-MAX_BYTES = 30000
+MAX_BYTES = 80000                   # 지침 2만 자(한글은 글자당 3바이트라 약 6만 바이트) + 머리말을 담는다
+
+
+def _unquote(value):
+    """값 전체를 감싼 짝이 맞는 따옴표 한 쌍만 벗긴다. 글 끝에 있는 따옴표는 지우지 않는다."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
 
 
 def _parse(path, folder):
@@ -38,7 +45,7 @@ def _parse(path, folder):
             for line in raw[4:end].split("\n"):
                 key, sep, value = line.partition(":")
                 if sep:
-                    meta[key.strip().lower()] = value.strip().strip("\"'")
+                    meta[key.strip().lower()] = _unquote(value.strip())
             body = raw[end + 4:].lstrip("\n")
     name = (meta.get("name") or folder).lower()     # Claude Code 스킬은 name이 대문자인 경우가 있다(HTML)
     if not _NAME.match(name):
@@ -63,6 +70,28 @@ def load_all():
             if skill and skill["name"] not in found:
                 found[skill["name"]] = skill
     return list(found.values())
+
+
+def problems():
+    """읽지 못해 건너뛴 스킬 폴더의 안내 문구. 조용히 사라지면 원인을 알 수 없어서 화면에 알린다."""
+    out = []
+    try:
+        folders = sorted(os.listdir(SKILLS_DIR))
+    except OSError:
+        return out
+    for folder in folders:
+        path = os.path.join(SKILLS_DIR, folder, "SKILL.md")
+        if not os.path.isfile(path):
+            continue
+        try:
+            if os.path.getsize(path) > MAX_BYTES:
+                out.append("%s 스킬이 너무 커서(%dKB 초과) 건너뛰었습니다." % (folder, MAX_BYTES // 1000))
+                continue
+        except OSError:
+            continue
+        if _parse(path, folder) is None:
+            out.append("%s 스킬을 읽지 못해 건너뛰었습니다. 이름은 영문 소문자·숫자·-·_만 쓸 수 있습니다." % folder)
+    return out
 
 
 # ── 스킬이 쓸 수 있는 내장 도구 ──────────────────────────────────────────
@@ -126,11 +155,20 @@ MAX_BODY = 20000
 
 def view():
     """화면에 보여 줄 스킬 목록과, 스킬이 고를 수 있는 도구."""
+    # 본문은 싣지 않는다. 화면이 상태를 자주 읽는데 스킬마다 최대 2만 자가 매번 실리면 낭비다. 본문은 get()으로 받는다.
     return {
-        "skills": [{"name": s["name"], "description": s["description"], "tools": s["tools"], "body": s["body"]}
+        "skills": [{"name": s["name"], "description": s["description"], "tools": s["tools"]}
                    for s in load_all()],
         "tools": [{"name": n, "description": spec["description"]} for n, spec in SKILL_TOOLS.items()],
     }
+
+
+def get(name):
+    """스킬 하나의 본문까지 포함한 내용. 없으면 None."""
+    for s in load_all():
+        if s["name"] == name:
+            return {"name": s["name"], "description": s["description"], "tools": s["tools"], "body": s["body"]}
+    return None
 
 
 def save(name, description, tools, body):

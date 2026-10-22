@@ -120,6 +120,7 @@ def build(include_mcp=True):
     try:
         from . import skills
         entries.extend(skills.entries())
+        errors.extend(skills.problems())
     except Exception:                                   # noqa: BLE001
         errors.append("스킬 폴더를 읽지 못했습니다. skills/ 안의 SKILL.md를 확인해 주세요.")
 

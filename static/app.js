@@ -396,8 +396,16 @@ function drawSkills(view) {
     : '<div class="empty">등록된 스킬이 없습니다.</div>';
 }
 
-function openSkill(name) {
-  const s = SKILLS.skills.find((x) => x.name === name) || null;
+async function openSkill(name) {
+  let s = null;
+  if (name) {
+    // 목록에는 본문이 없다. 편집 팝업을 열 때 이 스킬의 본문을 받아 온다.
+    try {
+      const r = await post("/api/skills/get", { name });
+      if (!r.ok) { alert(r.message || "스킬을 불러오지 못했습니다."); refresh(); return; }
+      s = r.skill;
+    } catch (e) { alert(e.message); return; }
+  }
   SKILL_EDITING = s ? s.name : null;
   $("skillDialogTitle").textContent = s ? `스킬 · ${s.name}` : "스킬 추가";
   $("skillName").value = s ? s.name : "";
@@ -426,7 +434,11 @@ function importSkillMd(raw) {
     if (end > 0) {
       text.slice(4, end).split("\n").forEach((line) => {
         const i = line.indexOf(":");
-        if (i > 0) meta[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+        if (i > 0) {
+          let v = line.slice(i + 1).trim();
+          if (v.length >= 2 && v[0] === v[v.length - 1] && (v[0] === '"' || v[0] === "'")) v = v.slice(1, -1);   // 짝이 맞는 바깥 따옴표만
+          meta[line.slice(0, i).trim().toLowerCase()] = v;
+        }
       });
       body = text.slice(end + 4).replace(/^\n+/, "");
     }
@@ -500,9 +512,14 @@ $("goMcp").addEventListener("click", () => document.querySelector('.tab[data-tab
 const HTML_DOCS = new Map();   // 해시 -> 원문. 다시 그려도 같은 글은 한 번만 담긴다.
 const attr = (s) => esc(s).replace(/"/g, "&quot;");
 function hashText(t) {
-  let h = 5381;
-  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
-  return h.toString(36) + t.length.toString(36);
+  // 서로 다른 계산 두 개를 이어 붙인다. 하나만 쓰면 드물게 충돌해 [다운로드]가 다른 문서를 줄 수 있다.
+  let a = 5381, b = 2166136261;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    a = ((a * 33) ^ c) >>> 0;
+    b = Math.imul(b ^ c, 16777619) >>> 0;
+  }
+  return a.toString(36) + b.toString(36) + t.length.toString(36);
 }
 function injectHead(html, tag) {
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + tag);
