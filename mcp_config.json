@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "국가법령": {
-      "url": "https://mcp.gomdori.app/law"
-    },
-    "mslearn": {
-      "url": "https://learn.microsoft.com/api/mcp"
+    "ai-doc-manager": {
+      "url": "http://localhost:8005/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AI_DOC_MANAGER_API_KEY}"
+      }
     }
   }
 }
