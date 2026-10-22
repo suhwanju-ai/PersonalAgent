@@ -69,13 +69,15 @@ hr.doc-separator{border:0;border-top:2px solid var(--border);margin:64px 0 40px}
 <ul><li>루프백(<code>127.0.0.1</code>/<code>localhost</code>) 접속은 인증하지 않는다. Host/Origin 검사가 방어선이다.</li><li>신뢰 origin은 <code>.env</code>의 <code>APP_TRUSTED_ORIGINS</code>(쉼표 구분)로 지정하며, <strong>시작할 때 한 번만 읽는다.</strong> 바꾸려면 재시작.</li><li>연구원 서버는 <code>browser_origins=()</code>로 호출해 <strong>브라우저가 보낸 Origin 헤더가 있으면 거절</strong>한다. 본체 프로세스만 호출할 수 있다.</li></ul>
 <h3>1.2 락(LOCK) 규칙</h3>
 <p>모든 POST는 전역 <code>LOCK</code> 하나로 줄 세워 처리한다. <code>/api/research</code>는 연구가 끝날 때까지(수 분) 이 락을 쥔다. 따라서:</p>
-<ul><li>연구 중에도 응답해야 하는 POST는 <code>lock=False</code>로 등록한다: <code>/api/research/stop</code>, <code>/api/agents/prompt</code>, <code>/api/agents/prompt/reset</code>.</li><li>연구 중에도 읽어야 하는 GET은 락을 잡지 않는다: <code>/api/context</code>, <code>/api/agents</code>, <code>/api/research/progress</code>. (<code>/api/state</code>만 락을 잡는다.)</li></ul>
+<ul><li>연구 중에도 응답해야 하는 POST는 <code>lock=False</code>로 등록한다: <code>/api/research/stop</code>, <code>/api/agents/prompt</code>, <code>/api/agents/prompt/reset</code>.</li><li>연구 중에도 읽어야 하는 GET은 락을 잡지 않는다: <code>/api/context</code>, <code>/api/agents</code>, <code>/api/research/progress</code>, <code>/api/output</code>. (<code>/api/state</code>만 락을 잡는다.)</li></ul>
 <h2>2. GET 엔드포인트</h2>
-<div class="tablewrap"><table><thead><tr><th>경로</th><th>설명</th><th>락</th></tr></thead><tbody><tr><td><code>/</code>, <code>/index.html</code></td><td>화면(<code>static/index.html</code>)</td><td>-</td></tr><tr><td><code>/static/&lt;파일&gt;</code></td><td>정적 파일. <code>basename</code>만 사용해 상위 경로 접근 차단</td><td>-</td></tr><tr><td><code>/api/state</code></td><td>도구 탭·MCP 탭이 쓰는 전체 상태</td><td>잡음</td></tr><tr><td><code>/api/context</code></td><td>Context Window 계기판 스냅샷</td><td>안 잡음</td></tr><tr><td><code>/api/agents</code></td><td>세 역할의 프로세스 상태 + 연구원 지침 목록</td><td>안 잡음</td></tr><tr><td><code>/api/research/progress</code></td><td>진행 중인 연구의 로그(폴링용)</td><td>안 잡음</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>경로</th><th>설명</th><th>락</th></tr></thead><tbody><tr><td><code>/</code>, <code>/index.html</code></td><td>화면(<code>static/index.html</code>)</td><td>-</td></tr><tr><td><code>/static/&lt;파일&gt;</code></td><td>정적 파일. <code>basename</code>만 사용해 상위 경로 접근 차단</td><td>-</td></tr><tr><td><code>/api/state</code></td><td>도구 탭·MCP 탭이 쓰는 전체 상태</td><td>잡음</td></tr><tr><td><code>/api/context</code></td><td>Context Window 계기판 스냅샷</td><td>안 잡음</td></tr><tr><td><code>/api/agents</code></td><td>세 역할의 프로세스 상태 + 연구원 지침 목록</td><td>안 잡음</td></tr><tr><td><code>/api/output?id=&lt;12자리 16진수&gt;</code></td><td>스킬 <code>render_html</code>이 만든 HTML 문서. 없거나 형식이 틀리면 404. 응답에 <code>Content-Security-Policy: sandbox …</code>를 붙여 직접 열어도 스크립트가 돌지 않는다</td><td>안 잡음</td></tr><tr><td><code>/api/research/progress</code></td><td>진행 중인 연구의 로그(폴링용)</td><td>안 잡음</td></tr></tbody></table></div>
 <h3>GET <code>/api/state</code></h3>
 <pre><code class="lang-json">{
   &quot;tools&quot;: [{&quot;name&quot;: &quot;memo_tool_1&quot;, &quot;source&quot;: &quot;내장&quot;}],
   &quot;disabled_tools&quot;: [{&quot;source&quot;: &quot;국가법령&quot;, &quot;name&quot;: &quot;get_annexes&quot;}],
+  &quot;skills&quot;: {&quot;skills&quot;: [{&quot;name&quot;: &quot;html&quot;, &quot;description&quot;: &quot;...&quot;, &quot;tools&quot;: [&quot;render_html&quot;], &quot;body&quot;: &quot;...&quot;}],
+             &quot;tools&quot;: [{&quot;name&quot;: &quot;render_html&quot;, &quot;description&quot;: &quot;...&quot;}]},
   &quot;context_window&quot;: {&quot;phase&quot;: &quot;ready&quot;, &quot;...&quot;: &quot;측정값&quot;},
   &quot;chat&quot;: [{&quot;message&quot;: &quot;...&quot;, &quot;answer&quot;: &quot;...&quot;, &quot;calls&quot;: [], &quot;at&quot;: 1760000000.0}],
   &quot;prompt&quot;: &quot;현재 시스템 프롬프트&quot;,
@@ -105,7 +107,7 @@ hr.doc-separator{border:0;border-top:2px solid var(--border);margin:64px 0 40px}
  &quot;started&quot;: 1760000000.0, &quot;elapsed&quot;: 42.5, &quot;log&quot;: [{&quot;kind&quot;: &quot;delegate&quot;, &quot;to&quot;: &quot;research&quot;, &quot;label&quot;: &quot;자료조사 연구원&quot;, &quot;instruction&quot;: &quot;...&quot;, &quot;at&quot;: 1760000001.0}]}</code></pre>
 <p><code>log</code> 항목의 <code>kind</code>는 <code>delegate</code>(맡김) · <code>return</code>(돌아옴, <code>trace</code> 포함) · <code>final</code>(최종 답) 세 가지다.</p>
 <h2>3. POST 엔드포인트 (본체 :8770)</h2>
-<div class="tablewrap"><table><thead><tr><th>경로</th><th>요청 본문</th><th>성공 응답</th><th>락</th></tr></thead><tbody><tr><td><code>/api/chat</code></td><td><code>{message}</code></td><td><code>{ok, answer, calls, tokens, searches, elapsed, steps, chat, context_window}</code></td><td>잡음</td></tr><tr><td><code>/api/chat/reset</code></td><td><code>{}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/llm/settings</code></td><td><code>{provider, model, openrouter_model?, ollama_model?, ollama_base_url?}</code></td><td><code>{ok, settings}</code></td><td>잡음</td></tr><tr><td><code>/api/prompt</code></td><td><code>{text}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/prompt/reset</code></td><td><code>{}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/agents/prompt</code></td><td><code>{role, text}</code></td><td><code>{ok, prompts}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/agents/prompt/reset</code></td><td><code>{role}</code></td><td><code>{ok, prompts}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/agents/start</code> · <code>/stop</code></td><td><code>{role}</code></td><td><code>{ok, message?, agents}</code></td><td>잡음</td></tr><tr><td><code>/api/agents/start_all</code> · <code>/stop_all</code></td><td><code>{}</code></td><td><code>{ok, agents, message}</code></td><td>잡음</td></tr><tr><td><code>/api/research</code></td><td><code>{question, follow_up?}</code></td><td><code>{ok, answer, log, tokens, steps, follow_up, stopped, elapsed, has_session, auto_started}</code></td><td>잡음(수 분)</td></tr><tr><td><code>/api/research/stop</code></td><td><code>{}</code></td><td><code>{ok, message}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/research/reset</code></td><td><code>{}</code></td><td><code>{ok, has_session: false}</code></td><td>잡음</td></tr><tr><td><code>/api/data/upload</code></td><td><code>{name, data}</code> (data = base64)</td><td><code>{ok, name, replaced, files}</code></td><td>잡음</td></tr><tr><td><code>/api/data/delete</code></td><td><code>{name}</code></td><td><code>{ok, name, files}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/toggle</code></td><td><code>{name, on}</code></td><td><code>{ok, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/add</code></td><td><code>{name, url, headers?, fixed_args?}</code></td><td><code>{ok, tools, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/remove</code></td><td><code>{name}</code></td><td><code>{ok, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/tool/remove</code> · <code>/restore</code></td><td><code>{source, name}</code></td><td><code>{ok}</code></td><td>잡음</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>경로</th><th>요청 본문</th><th>성공 응답</th><th>락</th></tr></thead><tbody><tr><td><code>/api/chat</code></td><td><code>{message}</code></td><td><code>{ok, answer, calls, tokens, searches, elapsed, steps, chat, context_window}</code></td><td>잡음</td></tr><tr><td><code>/api/chat/reset</code></td><td><code>{}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/llm/settings</code></td><td><code>{provider, model, openrouter_model?, ollama_model?, ollama_base_url?}</code></td><td><code>{ok, settings}</code></td><td>잡음</td></tr><tr><td><code>/api/prompt</code></td><td><code>{text}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/prompt/reset</code></td><td><code>{}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/agents/prompt</code></td><td><code>{role, text}</code></td><td><code>{ok, prompts}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/agents/prompt/reset</code></td><td><code>{role}</code></td><td><code>{ok, prompts}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/agents/start</code> · <code>/stop</code></td><td><code>{role}</code></td><td><code>{ok, message?, agents}</code></td><td>잡음</td></tr><tr><td><code>/api/agents/start_all</code> · <code>/stop_all</code></td><td><code>{}</code></td><td><code>{ok, agents, message}</code></td><td>잡음</td></tr><tr><td><code>/api/research</code></td><td><code>{question, follow_up?}</code></td><td><code>{ok, answer, log, tokens, steps, follow_up, stopped, elapsed, has_session, auto_started}</code></td><td>잡음(수 분)</td></tr><tr><td><code>/api/research/stop</code></td><td><code>{}</code></td><td><code>{ok, message}</code></td><td><strong>안 잡음</strong></td></tr><tr><td><code>/api/research/reset</code></td><td><code>{}</code></td><td><code>{ok, has_session: false}</code></td><td>잡음</td></tr><tr><td><code>/api/data/upload</code></td><td><code>{name, data}</code> (data = base64)</td><td><code>{ok, name, replaced, files}</code></td><td>잡음</td></tr><tr><td><code>/api/data/delete</code></td><td><code>{name}</code></td><td><code>{ok, name, files}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/toggle</code></td><td><code>{name, on}</code></td><td><code>{ok, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/add</code></td><td><code>{name, url, headers?, fixed_args?}</code></td><td><code>{ok, tools, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/add_json</code></td><td><code>{json}</code> (<code>mcpServers</code> JSON 글자)</td><td><code>{ok, added, tools, problems}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/remove</code></td><td><code>{name}</code></td><td><code>{ok, errors}</code></td><td>잡음</td></tr><tr><td><code>/api/mcp/tool/remove</code> · <code>/restore</code></td><td><code>{source, name}</code></td><td><code>{ok}</code></td><td>잡음</td></tr><tr><td><code>/api/skills/save</code></td><td><code>{name, description, tools, body}</code></td><td><code>{ok, name, skills}</code></td><td>잡음</td></tr><tr><td><code>/api/skills/delete</code></td><td><code>{name}</code></td><td><code>{ok, skills}</code></td><td>잡음</td></tr></tbody></table></div>
 <h3>3.1 도구 탭</h3>
 <p>**POST <code>/api/chat</code>** — 도구 탭 대화 한 턴. 이전 대화(<code>state/chat_history.json</code>)를 <code>history</code>로 이어 넘기고, <strong>성공한 턴만 저장</strong>한다.</p>
 <div class="tablewrap"><table><thead><tr><th>실패 상황</th><th><code>message</code></th></tr></thead><tbody><tr><td><code>message</code> 비어 있음</td><td><code>무엇을 도와드릴지 입력해 주세요.</code></td></tr><tr><td>쓸 수 있는 도구가 없음</td><td><code>쓸 수 있는 도구가 없습니다.</code></td></tr><tr><td>HTTP 429</td><td><code>잠시 후 다시 시도해 주세요 (약 1분).</code></td></tr><tr><td>OpenRouter 키 없음</td><td><code>.env 파일에 키가 없습니다. OPENROUTER_API_KEY를 확인해 주세요.</code></td></tr><tr><td>Ollama 연결 실패</td><td><code>앱 서버에서 Ollama에 연결하지 못했습니다. ...</code></td></tr><tr><td>Ollama가 요청 거부</td><td><code>Ollama가 요청을 거부했습니다(HTTP 코드 ...). ...</code></td></tr><tr><td>그 밖의 API 오류</td><td><code>응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.</code></td></tr></tbody></table></div>
@@ -122,14 +124,16 @@ hr.doc-separator{border:0;border-top:2px solid var(--border);margin:64px 0 40px}
 <div class="tablewrap"><table><thead><tr><th>규칙</th><th>값</th></tr></thead><tbody><tr><td>허용 확장자</td><td><code>.csv</code> <code>.txt</code> <code>.json</code></td></tr><tr><td>크기 상한</td><td>2MB (<code>MAX_UPLOAD</code>)</td></tr><tr><td>인코딩</td><td>UTF-8(BOM 허용). 아니면 거절</td></tr><tr><td>파일명</td><td><code>basename</code>만 사용, <code>.</code>으로 시작하는 이름 거절</td></tr><tr><td>같은 이름</td><td>덮어쓴다(<code>replaced: true</code>). 덮어쓸지는 화면이 먼저 확인</td></tr></tbody></table></div>
 <p>**POST <code>/api/data/delete</code>** — 삭제는 되돌릴 수 없다.</p>
 <h3>3.4 MCP</h3>
-<ul><li><code>/api/mcp/toggle</code>: 카탈로그에 있는 서버만 켜고 끈다. 결과를 <code>mcp_config.json</code>에 쓰고 연결을 초기화한다.</li><li><code>/api/mcp/add</code>: 이름 40자 이하, 예약어 <code>내장</code>·<code>위임</code>·<code>알 수 없음</code> 불가, 중복 불가, 주소는 <code>http://</code> 또는 <code>https://</code>이며 공백 불가. <code>headers</code>는 <code>이름: 값</code> 줄 문자열 또는 <code>{이름: 값}</code> 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, <code>Host</code>·<code>Content-Type</code>·<code>Accept</code>·<code>Mcp-*</code> 등 예약 헤더 불가. 키는 주소와 헤더 값에 <code>${변수명}</code>으로 적으면 연결 시점에 <code>.env</code>에서 채운다. 추가 즉시 연결한다. <code>fixed_args</code>는 <code>이름: 값</code> 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 <code>tools/call</code> 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다.</li><li><code>/api/mcp/remove</code>: <strong>직접 추가한 서버만</strong> 삭제 가능(<code>state/mcp_custom.json</code>). 기본 카탈로그 서버는 연결만 끊을 수 있다.</li><li><code>/api/mcp/tool/remove</code>·<code>restore</code>: 서버 단위가 아닌 <strong>도구 단위</strong>로 제외/복원 (<code>state/disabled_mcp_tools.json</code>).</li></ul>
+<ul><li><code>/api/mcp/toggle</code>: 카탈로그에 있는 서버만 켜고 끈다. 결과를 <code>mcp_config.json</code>에 쓰고 연결을 초기화한다.</li><li><code>/api/mcp/add</code>: 이름 40자 이하, 예약어 <code>내장</code>·<code>위임</code>·<code>스킬</code>·<code>알 수 없음</code> 불가, 중복 불가, 주소는 <code>http://</code> 또는 <code>https://</code>이며 공백 불가. <code>headers</code>는 <code>이름: 값</code> 줄 문자열 또는 <code>{이름: 값}</code> 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, <code>Host</code>·<code>Content-Type</code>·<code>Accept</code>·<code>Mcp-*</code> 등 예약 헤더 불가. 키는 주소와 헤더 값에 <code>${변수명}</code>으로 적으면 연결 시점에 <code>.env</code>에서 채운다. 추가 즉시 연결한다. <code>fixed_args</code>는 <code>이름: 값</code> 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 <code>tools/call</code> 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다.</li><li><code>/api/mcp/add_json</code>: Claude Desktop 식 <code>{&quot;mcpServers&quot;: {이름: {url, headers?, fixed_args?}}}</code>(또는 <code>{이름: {...}}</code>만)를 붙여 넣어 한꺼번에 추가한다. 한 번에 20개까지. **원격(<code>url</code>) 서버만** 받고 <code>command</code>가 있는 항목은 이유와 함께 거절한다(화면에서 명령 실행 서버를 추가하는 것은 막는다). 항목마다 <code>/api/mcp/add</code>와 같은 검사를 거치며, 일부만 실패하면 성공한 서버는 추가하고 실패한 것은 <code>problems</code>에 <code>이름: 이유</code>로 돌려준다. 모두 실패하면 <code>ok: false</code>.</li><li><code>/api/mcp/remove</code>: <strong>직접 추가한 서버만</strong> 삭제 가능(<code>state/mcp_custom.json</code>). 기본 카탈로그 서버는 연결만 끊을 수 있다.</li><li><code>/api/mcp/tool/remove</code>·<code>restore</code>: 서버 단위가 아닌 <strong>도구 단위</strong>로 제외/복원 (<code>state/disabled_mcp_tools.json</code>).</li></ul>
+<h3>3.5 스킬</h3>
+<ul><li><code>/api/skills/save</code>: 스킬 한 개를 추가하거나 고친다. 이름은 <code>^[a-z0-9][a-z0-9_-]{0,39}$</code>(폴더 이름으로 쓰므로 경로를 우회할 수 없다), 설명 1~300자, 지침 1~20,000자, <code>tools</code>는 <code>lab/skills.py</code>의 <code>SKILL_TOOLS</code>에 있는 이름만(현재 <code>render_html</code>). 스킬은 30개까지. 같은 이름이 있으면 그 폴더의 <code>SKILL.md</code>를 덮어쓴다. 저장하면 다음 요청부터 모델에게 보이며 앱을 다시 켤 필요가 없다. 틀리면 <code>{ok: false, message}</code>.</li><li><code>/api/skills/delete</code>: <code>skills/&lt;폴더&gt;/SKILL.md</code>를 지우고 폴더가 비면 폴더도 지운다. 되돌릴 수 없다.</li><li>스킬은 <strong>코드를 실행하지 않는다.</strong> 글(지침)과 코드에 등록된 도구 이름만 담는다.</li></ul>
 <h2>4. 연구원 서버 (:8771 / :8772)</h2>
 <p><code>agents/_serve.py</code>가 두 연구원을 같은 코드로 띄운다. 달라지는 것은 역할 지침과 도구뿐이다.</p>
 <div class="tablewrap"><table><thead><tr><th>메서드·경로</th><th>설명</th></tr></thead><tbody><tr><td><code>GET /info</code></td><td><code>{ok, role, label, pid, port, web_search, tools, errors}</code></td></tr><tr><td><code>POST /task</code></td><td>본문 <code>{instruction}</code> → <code>{ok, result, calls, searches, tokens, elapsed, steps, trace}</code></td></tr></tbody></table></div>
 <ul><li>기동하면 표준 출력에 <code>READY &lt;role&gt; &lt;port&gt; &lt;pid&gt;</code> 한 줄을 쓴다. <strong>부모가 이 줄로 기동을 확인하므로 형식을 바꾸면 안 된다.</strong></li><li><code>POST /task</code>는 호출 때마다 <code>roles.prompt_for(role)</code>로 지침을 읽는다 → 화면에서 고친 지침이 재시작 없이 반영된다.</li><li><code>trace</code>는 연구원이 모델과 주고받은 요청·응답, 실행한 도구 호출의 순서 기록이다.</li><li>본체의 <code>_send()</code>가 호출하며 제한 시간은 600초다.</li></ul>
 <h2>5. 외부 호출 (아웃바운드)</h2>
 <div class="tablewrap"><table><thead><tr><th>대상</th><th>경로</th><th>제한 시간</th><th>비고</th></tr></thead><tbody><tr><td>OpenRouter</td><td><code>https://openrouter.ai/api/v1/chat/completions</code></td><td>150초</td><td><code>Authorization: Bearer &lt;키&gt;</code>. 429는 즉시 <code>QuotaExceeded</code>, 500/502/503/504·네트워크 오류는 1회 재시도</td></tr><tr><td>Ollama</td><td><code>&lt;설정한 주소&gt;/chat/completions</code></td><td>600초</td><td>인증 없음. 시간 초과는 재시도하지 않음</td></tr><tr><td>MCP(stdio)</td><td>자식 프로세스</td><td>요청당 20초</td><td><code>mcp_config.json</code>의 <code>command</code>/<code>args</code></td></tr><tr><td>MCP(HTTP)</td><td>Streamable HTTP</td><td>요청당 30초</td><td>프로토콜 버전 <code>2025-06-18</code></td></tr></tbody></table></div>
-<p>모델 요청은 <code>temperature 0.0</code>, <code>stream: false</code>다. 웹 검색이 켜진 연구원(자료조사)은 OpenRouter일 때만 <code>plugins: [{&quot;id&quot;:&quot;web&quot;,&quot;engine&quot;:&quot;native&quot;}]</code>를 붙인다. Ollama에는 웹 검색 플러그인이 없다.</p>
+<p>모델 요청은 <code>temperature 0.0</code>, <code>stream: false</code>다. 웹 검색이 켜진 연구원(자료조사)은 OpenRouter일 때만 <code>plugins: [{&quot;id&quot;:&quot;web&quot;}]</code>를 붙인다. <code>engine</code>은 지정하지 않는다. OpenRouter가 모델이 내장 검색을 지원하면 그것을, 아니면 Exa를 고른다(<code>&quot;native&quot;</code>로 못박으면 <code>gpt-4o-mini</code> 같은 모델에서 <code>HTTP 404 The requested model does not support native web search</code>가 난다). Ollama에는 웹 검색 플러그인이 없다.</p>
 <h2>6. 인증·비율 제한·페이지네이션</h2>
 <ul><li><strong>인증</strong>: 루프백은 없음. 신뢰 origin은 Basic 인증(<code>APP_ACCESS_TOKEN</code>). 토큰이 없으면 신뢰 origin 접속 자체를 거부한다.</li><li><strong>비율 제한</strong>: 앱 자체에는 없다. 모델 쪽 429만 처리한다.</li><li><strong>페이지네이션</strong>: 없다. 대화 기록은 최근 30턴(<code>CHAT_MAX_TURNS</code>)만 유지한다.</li><li><strong>에러 응답 형식</strong>: 보안 검사 실패는 <code>{&quot;ok&quot;: false, &quot;message&quot;: &quot;...&quot;}</code> + 4xx(GET은 text/plain). 업무 실패는 HTTP 200 + <code>ok: false</code>.</li></ul>
 </section>
@@ -227,6 +231,16 @@ t.join()</code></pre>
   -H &quot;Origin: http://127.0.0.1:8770&quot; \
   -d &#x27;{&quot;name&quot;:&quot;my-docs&quot;,&quot;url&quot;:&quot;https://example.com/mcp?key=${API_KEY}&quot;}&#x27;</code></pre>
 <p><code>${API_KEY}</code>는 문자 그대로 보낸다. 값은 연결할 때 <code>.env</code>에서 채워지고 어디에도 기록되지 않는다.</p>
+<h3>시나리오 F — <code>mcpServers</code> JSON을 그대로 붙이기</h3>
+<pre><code class="lang-bash">curl -X POST http://127.0.0.1:8770/api/mcp/add_json -H &quot;Content-Type: application/json&quot; \
+  -H &quot;Origin: http://127.0.0.1:8770&quot; \
+  -d &#x27;{&quot;json&quot;:&quot;{\&quot;mcpServers\&quot;:{\&quot;my-docs\&quot;:{\&quot;url\&quot;:\&quot;http://localhost:8005/mcp\&quot;,\&quot;headers\&quot;:{\&quot;Authorization\&quot;:\&quot;Bearer ${API_KEY}\&quot;}}}}&quot;}&#x27;</code></pre>
+<p>응답의 <code>added</code>는 추가된 서버 이름, <code>problems</code>는 건너뛴 서버와 이유다. <code>command</code>가 있는 서버(명령을 실행하는 서버)는 추가되지 않는다. 키는 <code>${API_KEY}</code>처럼 이름으로 적고 값은 <code>.env</code>에 둔다.</p>
+<h3>시나리오 G — 스킬 추가하고 HTML 문서 받기</h3>
+<pre><code class="lang-bash">curl -X POST http://127.0.0.1:8770/api/skills/save -H &quot;Content-Type: application/json&quot; \
+  -H &quot;Origin: http://127.0.0.1:8770&quot; \
+  -d &#x27;{&quot;name&quot;:&quot;report-style&quot;,&quot;description&quot;:&quot;보고서 문체 규칙. 보고서를 쓸 때 읽는다&quot;,&quot;tools&quot;:[],&quot;body&quot;:&quot;한 줄 요약으로 시작한다.&quot;}&#x27;</code></pre>
+<p>저장하면 다음 요청부터 모델이 <code>use_skill</code>로 이 지침을 읽을 수 있다. 기본 제공 <code>html</code> 스킬을 쓰는 요청(예: <code>/api/chat</code>에 &quot;결과를 HTML 문서로 만들어줘&quot;)은 답변 끝에 <code>[[html:&lt;id&gt;]]</code> 한 줄을 돌려준다. 그 문서는 <code>GET /api/output?id=&lt;id&gt;</code>로 받을 수 있다.</p>
 <h2>4. 에러 코드와 대처</h2>
 <div class="tablewrap"><table><thead><tr><th>상태</th><th>메시지</th><th>원인 / 대처</th></tr></thead><tbody><tr><td>401</td><td><code>인증이 필요합니다.</code></td><td>공개 주소로 접속했는데 Basic 인증이 없거나 비밀번호가 다름</td></tr><tr><td>403</td><td><code>요청한 호스트를 허용하지 않습니다.</code></td><td><code>Host</code>가 허용 목록에 없음. 프록시가 <code>Host</code>를 바꾸지 않게 설정</td></tr><tr><td>403</td><td><code>외부 접속에는 .env의 APP_ACCESS_TOKEN 설정이 필요합니다.</code></td><td>신뢰 origin만 등록하고 토큰을 안 넣음</td></tr><tr><td>403</td><td><code>허용되지 않은 요청 출처입니다.</code></td><td>POST에 <code>Origin</code> 헤더가 없거나 다름</td></tr><tr><td>403</td><td><code>교차 출처 요청을 허용하지 않습니다.</code></td><td>다른 사이트에서 보낸 브라우저 요청</td></tr><tr><td>413</td><td><code>보낸 내용이 너무 큽니다.</code></td><td>본문이 8MB 초과. 파일은 2MB 이하로</td></tr><tr><td>415</td><td><code>JSON 요청만 허용됩니다.</code></td><td><code>Content-Type: application/json</code> 누락</td></tr><tr><td>400</td><td><code>요청을 읽지 못했습니다.</code></td><td>JSON이 아니거나 UTF-8이 아님</td></tr><tr><td>404</td><td><code>not found</code></td><td>없는 경로</td></tr><tr><td>200, <code>ok:false</code></td><td>각 API의 <code>message</code></td><td>업무 실패. <code>message</code>를 그대로 화면에 보여 주면 된다</td></tr></tbody></table></div>
 <h2>5. FAQ / 트러블슈팅</h2>
@@ -246,7 +260,7 @@ t.join()</code></pre>
 <p>저장 위치는 두 곳이다.</p>
 <ul><li><code>state/</code> — <strong>런타임 상태.</strong> 앱이 처음 쓸 때 만든다. <code>.gitignore</code> 대상.</li><li><code>data/</code> — <strong>자료.</strong> <code>data/seed/notes.json</code>(원본 샘플), <code>data/notes.json</code>(작업본, git 제외), <code>data/research/</code>(연구 자료).</li></ul>
 <h2>2. 파일 목록</h2>
-<div class="tablewrap"><table><thead><tr><th>파일</th><th>한글 설명</th><th>형식</th><th>쓰는 곳</th><th>없을 때</th></tr></thead><tbody><tr><td><code>state/llm_settings.json</code></td><td>모델 제공자·모델 이름·Ollama 주소</td><td>JSON 객체</td><td><code>config.save_llm_settings</code></td><td><code>.env</code> 기본값 + OpenRouter</td></tr><tr><td><code>state/system_prompt.txt</code></td><td>도구 탭의 역할 지시문</td><td>텍스트</td><td><code>runner.set_system_prompt</code></td><td><code>DEFAULT_SYSTEM_PROMPT</code></td></tr><tr><td><code>state/role_prompts.json</code></td><td>화면에서 고친 연구원 지침</td><td>JSON <code>{역할: 지침}</code></td><td><code>roles.set_prompt</code></td><td><code>roles.py</code>의 기본 지침</td></tr><tr><td><code>state/chat_history.json</code></td><td>도구 탭 대화 기록</td><td>JSON <code>{&quot;turns&quot;: [...]}</code></td><td><code>runner.save_chat</code></td><td>빈 대화</td></tr><tr><td><code>state/tool_overrides.json</code></td><td>내장 도구 설명문 덮어쓰기</td><td>JSON <code>{도구: 설명}</code></td><td><code>registry.set_override</code></td><td>코드의 기본 설명</td></tr><tr><td><code>state/mcp_custom.json</code></td><td>화면에서 주소로 추가한 MCP 서버</td><td>JSON <code>{이름: {...}}</code></td><td><code>app.write_custom_servers</code></td><td>없음</td></tr><tr><td><code>state/disabled_mcp_tools.json</code></td><td>제외한 MCP 도구</td><td>JSON <code>[[서버, 도구], ...]</code></td><td><code>registry.disable_mcp_tool</code></td><td>제외 없음</td></tr><tr><td><code>state/data_path.txt</code></td><td>메모 파일 경로 덮어쓰기</td><td>텍스트(경로 한 줄)</td><td>(파일 직접 편집)</td><td><code>data/notes.json</code></td></tr><tr><td><code>mcp_config.json</code></td><td>지금 연결한 MCP 서버</td><td>JSON <code>{&quot;mcpServers&quot;: {...}}</code></td><td><code>app.write_mcp_config</code></td><td>연결 없음</td></tr><tr><td><code>mcp_catalog.json</code></td><td>연결 가능한 MCP 서버 기본 목록</td><td>JSON</td><td>(수동 편집)</td><td>직접 추가한 서버만</td></tr><tr><td><code>data/notes.json</code></td><td>메모 도구가 다루는 메모</td><td>JSON 배열</td><td><code>tools._save</code></td><td>시작 시 seed에서 복사</td></tr><tr><td><code>data/seed/notes.json</code></td><td>메모 원본 샘플</td><td>JSON 배열</td><td>(수동)</td><td>-</td></tr><tr><td><code>data/research/*.csv·txt·json</code></td><td>연구 자료</td><td>텍스트</td><td><code>datafile.save_upload</code></td><td>비어 있음</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>파일</th><th>한글 설명</th><th>형식</th><th>쓰는 곳</th><th>없을 때</th></tr></thead><tbody><tr><td><code>state/llm_settings.json</code></td><td>모델 제공자·모델 이름·Ollama 주소</td><td>JSON 객체</td><td><code>config.save_llm_settings</code></td><td><code>.env</code> 기본값 + OpenRouter</td></tr><tr><td><code>state/system_prompt.txt</code></td><td>도구 탭의 역할 지시문</td><td>텍스트</td><td><code>runner.set_system_prompt</code></td><td><code>DEFAULT_SYSTEM_PROMPT</code></td></tr><tr><td><code>state/role_prompts.json</code></td><td>화면에서 고친 연구원 지침</td><td>JSON <code>{역할: 지침}</code></td><td><code>roles.set_prompt</code></td><td><code>roles.py</code>의 기본 지침</td></tr><tr><td><code>state/chat_history.json</code></td><td>도구 탭 대화 기록</td><td>JSON <code>{&quot;turns&quot;: [...]}</code></td><td><code>runner.save_chat</code></td><td>빈 대화</td></tr><tr><td><code>state/tool_overrides.json</code></td><td>내장 도구 설명문 덮어쓰기</td><td>JSON <code>{도구: 설명}</code></td><td><code>registry.set_override</code></td><td>코드의 기본 설명</td></tr><tr><td><code>state/mcp_custom.json</code></td><td>화면에서 주소로 추가한 MCP 서버</td><td>JSON <code>{이름: {...}}</code></td><td><code>app.write_custom_servers</code></td><td>없음</td></tr><tr><td><code>state/disabled_mcp_tools.json</code></td><td>제외한 MCP 도구</td><td>JSON <code>[[서버, 도구], ...]</code></td><td><code>registry.disable_mcp_tool</code></td><td>제외 없음</td></tr><tr><td><code>state/outputs/&lt;id&gt;.html</code></td><td>스킬 <code>render_html</code>이 만든 HTML 문서 (최근 50개)</td><td>HTML</td><td><code>html_render.save</code></td><td>없음</td></tr><tr><td><code>skills/&lt;이름&gt;/SKILL.md</code></td><td>스킬 (이름, 설명, 쓸 도구, 지침)</td><td>머리말 + 마크다운</td><td><code>skills.save</code></td><td>없음</td></tr><tr><td><code>state/data_path.txt</code></td><td>메모 파일 경로 덮어쓰기</td><td>텍스트(경로 한 줄)</td><td>(파일 직접 편집)</td><td><code>data/notes.json</code></td></tr><tr><td><code>mcp_config.json</code></td><td>지금 연결한 MCP 서버</td><td>JSON <code>{&quot;mcpServers&quot;: {...}}</code></td><td><code>app.write_mcp_config</code></td><td>연결 없음</td></tr><tr><td><code>mcp_catalog.json</code></td><td>연결 가능한 MCP 서버 기본 목록</td><td>JSON</td><td>(수동 편집)</td><td>직접 추가한 서버만</td></tr><tr><td><code>data/notes.json</code></td><td>메모 도구가 다루는 메모</td><td>JSON 배열</td><td><code>tools._save</code></td><td>시작 시 seed에서 복사</td></tr><tr><td><code>data/seed/notes.json</code></td><td>메모 원본 샘플</td><td>JSON 배열</td><td>(수동)</td><td>-</td></tr><tr><td><code>data/research/*.csv·txt·json</code></td><td>연구 자료</td><td>텍스트</td><td><code>datafile.save_upload</code></td><td>비어 있음</td></tr></tbody></table></div>
 <blockquote><code>state/tool_overrides.json</code>을 쓰는 함수(<code>registry.set_override</code>)는 있으나 <strong>현재 이 함수를 부르는 화면 라우트는 없다.</strong> 파일을 직접 만들면 적용된다.</blockquote>
 <h2>3. 파일 상세</h2>
 <h3>3.1 <code>state/llm_settings.json</code></h3>
@@ -261,7 +275,18 @@ t.join()</code></pre>
 <p>턴 단위로 저장하는 이유: 오래된 턴을 지울 때 <code>function_call</code>과 <code>function_call_output</code>의 짝이 깨지지 않게 하려는 것이다. 최근 30턴(<code>CHAT_MAX_TURNS</code>)만 남긴다. 파일이 깨졌으면 빈 대화로 취급한다.</p>
 <h3>3.4 <code>state/mcp_custom.json</code></h3>
 <pre><code class="lang-json">{ &quot;서버이름&quot;: { &quot;label&quot;: &quot;서버이름&quot;, &quot;detail&quot;: &quot;직접 추가한 원격 서버 · &lt;주소&gt;&quot;, &quot;spec&quot;: {&quot;url&quot;: &quot;...&quot;}, &quot;custom&quot;: true } }</code></pre>
-<p>서버 이름은 도구의 소속(<code>source</code>)이 된다. 예약어 <code>내장</code>·<code>위임</code>·<code>알 수 없음</code>은 쓸 수 없다. 기본 카탈로그와 이름이 겹치면 기본 카탈로그가 이긴다.</p>
+<p>서버 이름은 도구의 소속(<code>source</code>)이 된다. 예약어 <code>내장</code>·<code>위임</code>·<code>스킬</code>·<code>알 수 없음</code>은 쓸 수 없다. 기본 카탈로그와 이름이 겹치면 기본 카탈로그가 이긴다.</p>
+<h3>3.4-1 <code>skills/&lt;이름&gt;/SKILL.md</code></h3>
+<pre><code class="lang-text">---
+name: html
+description: 언제 쓰는지 한두 문장 (300자 이하)
+tools: render_html
+---
+
+(모델이 따를 지침, 마크다운)</code></pre>
+<p>Claude Code의 SKILL.md와 같은 형식이다. <code>tools</code>에는 <code>lab/skills.py</code>의 <code>SKILL_TOOLS</code>에 있는 이름만 인정하고 나머지는 무시한다. 폴더 이름과 <code>name</code>이 다르면 <code>name</code>(소문자로 바꿈)이 스킬 이름이다. 파일은 30KB까지이며, <strong>스킬 폴더의 다른 파일(파이썬 등)은 읽지 않는다.</strong> 이 폴더는 저장소에 들어 있고 <code>state/</code>와 달리 git이 추적한다.</p>
+<h3>3.4-2 <code>state/outputs/&lt;id&gt;.html</code></h3>
+<p><code>render_html</code>이 만든 완성된 HTML 문서다. <code>id</code>는 12자리 16진수. 모든 글을 이스케이프해 만든 파일이라 내려받아 열어도 스크립트가 없다. 50개를 넘으면 오래된 것부터 지운다. 대화 기록에는 <code>[[html:&lt;id&gt;]]</code> 표시 줄만 남고 문서 본문은 들어가지 않는다.</p>
 <h3>3.5 <code>mcp_config.json</code> · <code>mcp_catalog.json</code></h3>
 <pre><code class="lang-json">{ &quot;mcpServers&quot;: { &quot;국가법령&quot;: { &quot;url&quot;: &quot;https://mcp.gomdori.app/law&quot; } } }</code></pre>
 <ul><li>항목은 <code>{&quot;url&quot;: ...}</code>(원격 HTTP) 또는 <code>{&quot;command&quot;: ..., &quot;args&quot;: [...]}</code>(로컬 stdio).</li><li>값에 <code>${VAR}</code>를 적으면 연결할 때 <code>.env</code>로 채운다. <strong>채운 값은 메모리에만 두고 파일·로그에 쓰지 않는다.</strong></li></ul>
@@ -341,14 +366,25 @@ t.join()</code></pre>
         string tool_name PK
         string description
     }
+    SKILL {
+        string name PK
+        string description
+        string tools
+        string body
+    }
+    HTML_OUTPUT {
+        string id PK
+        string html
+    }
 
     CHAT_TURN ||--o{ TOOL_CALL : &quot;records&quot;
     CHAT_TURN ||--o{ API_ITEM : &quot;keeps&quot;
     MCP_SERVER ||--o| MCP_CONNECTION : &quot;connected as&quot;
-    MCP_SERVER ||--o{ DISABLED_MCP_TOOL : &quot;excludes&quot;</pre>
-<div class="tablewrap"><table><thead><tr><th>개체</th><th>저장 파일</th><th>비고</th></tr></thead><tbody><tr><td>LLM_SETTINGS</td><td><code>state/llm_settings.json</code></td><td>항상 1건</td></tr><tr><td>SYSTEM_PROMPT</td><td><code>state/system_prompt.txt</code></td><td>0 또는 1건</td></tr><tr><td>ROLE_PROMPT</td><td><code>state/role_prompts.json</code></td><td>역할당 0 또는 1건 (<code>research</code>, <code>experiment</code>)</td></tr><tr><td>CHAT_TURN / TOOL_CALL / API_ITEM</td><td><code>state/chat_history.json</code></td><td>최근 30턴</td></tr><tr><td>MEMO</td><td><code>data/notes.json</code></td><td>배열</td></tr><tr><td>RESEARCH_FILE</td><td><code>data/research/</code></td><td>폴더 안의 파일</td></tr><tr><td>MCP_SERVER</td><td><code>mcp_catalog.json</code> + <code>state/mcp_custom.json</code></td><td>두 파일을 합쳐 목록을 만든다</td></tr><tr><td>MCP_CONNECTION</td><td><code>mcp_config.json</code></td><td>켜 둔 서버만</td></tr><tr><td>DISABLED_MCP_TOOL</td><td><code>state/disabled_mcp_tools.json</code></td><td>(서버, 도구) 쌍</td></tr><tr><td>TOOL_OVERRIDE</td><td><code>state/tool_overrides.json</code></td><td>화면 라우트는 현재 없음</td></tr></tbody></table></div>
+    MCP_SERVER ||--o{ DISABLED_MCP_TOOL : &quot;excludes&quot;
+    SKILL ||--o{ HTML_OUTPUT : &quot;render_html creates&quot;</pre>
+<div class="tablewrap"><table><thead><tr><th>개체</th><th>저장 파일</th><th>비고</th></tr></thead><tbody><tr><td>LLM_SETTINGS</td><td><code>state/llm_settings.json</code></td><td>항상 1건</td></tr><tr><td>SYSTEM_PROMPT</td><td><code>state/system_prompt.txt</code></td><td>0 또는 1건</td></tr><tr><td>ROLE_PROMPT</td><td><code>state/role_prompts.json</code></td><td>역할당 0 또는 1건 (<code>research</code>, <code>experiment</code>)</td></tr><tr><td>CHAT_TURN / TOOL_CALL / API_ITEM</td><td><code>state/chat_history.json</code></td><td>최근 30턴</td></tr><tr><td>MEMO</td><td><code>data/notes.json</code></td><td>배열</td></tr><tr><td>RESEARCH_FILE</td><td><code>data/research/</code></td><td>폴더 안의 파일</td></tr><tr><td>MCP_SERVER</td><td><code>mcp_catalog.json</code> + <code>state/mcp_custom.json</code></td><td>두 파일을 합쳐 목록을 만든다</td></tr><tr><td>MCP_CONNECTION</td><td><code>mcp_config.json</code></td><td>켜 둔 서버만</td></tr><tr><td>DISABLED_MCP_TOOL</td><td><code>state/disabled_mcp_tools.json</code></td><td>(서버, 도구) 쌍</td></tr><tr><td>TOOL_OVERRIDE</td><td><code>state/tool_overrides.json</code></td><td>화면 라우트는 현재 없음</td></tr><tr><td>SKILL</td><td><code>skills/&lt;이름&gt;/SKILL.md</code></td><td>화면의 스킬 카드에서 추가·수정·삭제. 코드는 담지 않는다</td></tr><tr><td>HTML_OUTPUT</td><td><code>state/outputs/&lt;id&gt;.html</code></td><td><code>render_html</code> 도구가 만든 문서. 최근 50개</td></tr></tbody></table></div>
 <p>관계의 의미:</p>
-<ul><li><strong>CHAT_TURN → TOOL_CALL</strong>: 한 턴에서 모델이 부른 도구 요약. 화면에 보인다.</li><li><strong>CHAT_TURN → API_ITEM</strong>: 같은 턴의 원본 API 항목. 다음 요청에 이어 넘기며, <code>function_call</code>과 <code>function_call_output</code>이 한 쌍이어야 하므로 턴 단위로 함께 지운다.</li><li><strong>MCP_SERVER → MCP_CONNECTION</strong>: 카탈로그의 서버 중 켠 것만 설정 파일에 들어간다. 서버 이름이 둘을 잇는 키다.</li><li><strong>MCP_SERVER → DISABLED_MCP_TOOL</strong>: 서버는 연결한 채 개별 도구만 뺄 수 있다.</li></ul>
+<ul><li><strong>CHAT_TURN → TOOL_CALL</strong>: 한 턴에서 모델이 부른 도구 요약. 화면에 보인다.</li><li><strong>CHAT_TURN → API_ITEM</strong>: 같은 턴의 원본 API 항목. 다음 요청에 이어 넘기며, <code>function_call</code>과 <code>function_call_output</code>이 한 쌍이어야 하므로 턴 단위로 함께 지운다.</li><li><strong>MCP_SERVER → MCP_CONNECTION</strong>: 카탈로그의 서버 중 켠 것만 설정 파일에 들어간다. 서버 이름이 둘을 잇는 키다.</li><li><strong>MCP_SERVER → DISABLED_MCP_TOOL</strong>: 서버는 연결한 채 개별 도구만 뺄 수 있다.</li><li><strong>SKILL → HTML_OUTPUT</strong>: <code>tools</code>에 <code>render_html</code>을 가진 스킬(기본 <code>html</code>)을 모델이 읽고 도구를 부르면 문서가 한 건 생긴다. 답변에는 문서 id만 <code>[[html:id]]</code>로 남는다.</li></ul>
 <h2>2. 실행 중에만 존재하는 개체 (메모리)</h2>
 <p>파일에 저장되지 않는다. 앱을 재시작하면 사라진다.</p>
 <pre class="mermaid">erDiagram
@@ -596,6 +632,64 @@ t.join()</code></pre>
     A-&gt;&gt;O: stop_all (연구원 종료)
     A-&gt;&gt;RG: mcp_client.reset</pre>
 <p>Windows에서 부모 창을 강제로 닫으면 <code>atexit</code>이 돌지 않아 자식이 남을 수 있다. 그래서 기동 때 <code>cleanup_stale</code>로 한 번 더 정리한다.</p>
+<h2>8. 스킬로 HTML 문서 만들기</h2>
+<pre class="mermaid">sequenceDiagram
+    participant B as 브라우저
+    participant A as app.py
+    participant R as runner.run
+    participant M as 모델 API
+    participant SK as skills
+    participant HR as html_render
+    participant FS as state outputs
+
+    B-&gt;&gt;A: POST /api/chat 결과를 HTML로 만들어줘
+    A-&gt;&gt;R: run(message, entries)
+    R-&gt;&gt;M: 도구 목록 (use_skill 설명에 스킬 이름과 설명)
+    M--&gt;&gt;R: use_skill name html 호출
+    R-&gt;&gt;SK: use_skill(html)
+    SK--&gt;&gt;R: html 스킬 지침 본문
+    R-&gt;&gt;M: 지침을 읽은 결과
+    M--&gt;&gt;R: render_html title, markdown, register 호출
+    R-&gt;&gt;SK: render_html(args)
+    SK-&gt;&gt;HR: from_markdown 후 render
+    HR--&gt;&gt;SK: 이스케이프된 HTML 문서
+    SK-&gt;&gt;HR: save(html)
+    HR-&gt;&gt;FS: state outputs id html 저장
+    SK--&gt;&gt;R: 표시 줄 html 마커와 id
+    R-&gt;&gt;M: 도구 결과
+    M--&gt;&gt;R: 최종 답변 (마커 한 줄 포함)
+    Note over R: 모델이 마커를 빠뜨리면 답변 끝에 붙인다
+    R--&gt;&gt;A: answer
+    A--&gt;&gt;B: ok, answer
+    B-&gt;&gt;A: GET /api/output?id=id (마커를 만나면)
+    A-&gt;&gt;FS: load(id)
+    A--&gt;&gt;B: HTML (sandbox 헤더)
+    Note over B: sandbox iframe 미리보기와 다운로드 버튼</pre>
+<p>오류 흐름: 마크다운이나 형식이 틀리면 <code>render_html</code>이 <code>{&quot;오류&quot;: ...}</code>를 돌려주고 모델이 고쳐 다시 부른다. 에이전트 탭에서는 같은 흐름을 연구책임자가 쓴다(연구원에게는 스킬 도구가 없다).</p>
+<h2>9. 스킬 추가·수정·삭제</h2>
+<pre class="mermaid">sequenceDiagram
+    participant B as 브라우저
+    participant A as app.py
+    participant SK as skills
+    participant FS as skills 폴더
+    participant RG as registry
+
+    B-&gt;&gt;A: POST /api/skills/save name, description, tools, body
+    A-&gt;&gt;SK: save(...)
+    SK-&gt;&gt;SK: 이름 형식, 길이, 허용된 도구인지 검사
+    alt 검사 실패
+        SK--&gt;&gt;A: ValueError
+        A--&gt;&gt;B: ok false, message
+    else 통과
+        SK-&gt;&gt;FS: skills 이름 폴더의 SKILL.md 쓰기 (같은 이름이면 덮어씀)
+        A--&gt;&gt;B: ok, skills 목록
+        B-&gt;&gt;A: GET /api/state (갱신)
+        A-&gt;&gt;RG: build
+        RG-&gt;&gt;SK: entries (매번 폴더를 다시 읽음)
+        SK--&gt;&gt;RG: use_skill과 스킬이 고른 도구
+        A--&gt;&gt;B: tools에 반영
+    end</pre>
+<p>앱을 다시 켜지 않아도 다음 요청부터 반영되는 이유는 <code>registry.build()</code>가 부를 때마다 스킬 폴더를 새로 읽기 때문이다. 삭제(<code>/api/skills/delete</code>)도 같은 방식으로 <code>SKILL.md</code>를 지우고 목록을 다시 읽는다.</p>
 </section>
 <hr class="doc-separator">
 <section id="class-diagram">
@@ -650,6 +744,21 @@ t.join()</code></pre>
         +find(entries, name) dict
         +overrides() dict
         +disable_mcp_tool(source, name)
+    }
+    class Skills {
+        +SKILL_TOOLS dict
+        +load_all() list
+        +entries() list
+        +view() dict
+        +save(name, description, tools, body) str
+        +remove(name) bool
+    }
+    class HtmlRender {
+        +REGISTERS dict
+        +render(doc, register) str
+        +from_markdown(md, title, eyebrow, subtitle, footer) dict
+        +save(html) str
+        +load(out_id) str
     }
     class Llm {
         +call(system_prompt, items, declarations, web_search, temperature, trace) dict
@@ -717,6 +826,11 @@ t.join()</code></pre>
     Runner ..&gt; Registry : 선언과 조회
     Registry ..&gt; Tools : 내장 도구
     Registry ..&gt; McpClient : MCP 도구
+    Registry ..&gt; Skills : use_skill, render_html
+    Skills ..&gt; HtmlRender : render_html 도구
+    Orchestrator ..&gt; Skills : 연구책임자에게 스킬 도구
+    AppModule ..&gt; Skills : 스킬 편집
+    AppModule ..&gt; HtmlRender : 문서 제공
     Llm ..&gt; Config : 설정과 키
     Orchestrator ..&gt; Config : 포트와 경로</pre>
 <p><code>..&gt;</code>는 의존(호출) 관계다. 순환 의존이 없도록 <code>roles</code>는 <code>datafile</code>/<code>registry</code>를 함수 안에서 늦게 import한다.</p>
@@ -748,8 +862,8 @@ t.join()</code></pre>
     McpEntry --|&gt; ToolEntry
     DelegateEntry --|&gt; ToolEntry
     DataFileEntry --|&gt; ToolEntry</pre>
-<div class="tablewrap"><table><thead><tr><th>종류</th><th>만드는 곳</th><th>누가 보는가</th></tr></thead><tbody><tr><td>BuiltinEntry</td><td><code>registry._builtin()</code> — <code>memo_tool_1~4</code></td><td>도구 탭 대화</td></tr><tr><td>McpEntry</td><td><code>mcp_client.connect_all()</code></td><td>도구 탭 대화, 자료조사 연구원</td></tr><tr><td>DelegateEntry</td><td><code>orchestrator._delegate_entries()</code> — <code>delegate_research</code>, <code>delegate_experiment</code></td><td>연구책임자만</td></tr><tr><td>DataFileEntry</td><td><code>roles.tools_for(&quot;experiment&quot;)</code> — <code>read_data_file</code></td><td>실험수행 연구원만</td></tr></tbody></table></div>
-<p>도구 경계는 코드로 강제된다. 자료조사는 MCP 도구와 웹 검색만, 실험수행은 <code>read_data_file</code>만 받는다. 내장 메모 도구는 어느 연구원에게도 주지 않는다.</p>
+<div class="tablewrap"><table><thead><tr><th>종류</th><th>만드는 곳</th><th>누가 보는가</th></tr></thead><tbody><tr><td>BuiltinEntry</td><td><code>registry._builtin()</code> — <code>memo_tool_1~4</code></td><td>도구 탭 대화</td></tr><tr><td>McpEntry</td><td><code>mcp_client.connect_all()</code></td><td>도구 탭 대화, 자료조사 연구원</td></tr><tr><td>SkillEntry</td><td><code>skills.entries()</code> — <code>use_skill</code>, <code>render_html</code> (source는 <code>스킬</code>)</td><td>도구 탭 대화, 연구책임자</td></tr><tr><td>DelegateEntry</td><td><code>orchestrator._delegate_entries()</code> — <code>delegate_research</code>, <code>delegate_experiment</code></td><td>연구책임자만</td></tr><tr><td>DataFileEntry</td><td><code>roles.tools_for(&quot;experiment&quot;)</code> — <code>read_data_file</code></td><td>실험수행 연구원만</td></tr></tbody></table></div>
+<p>도구 경계는 코드로 강제된다. 자료조사는 MCP 도구와 웹 검색만, 실험수행은 <code>read_data_file</code>만 받는다. 내장 메모 도구는 어느 연구원에게도 주지 않는다. 스킬 도구(<code>use_skill</code>, <code>render_html</code>)는 도구 탭 대화와 연구책임자만 받고 연구원에게는 주지 않는다.</p>
 <h2>3. HTTP 서버와 MCP 연결</h2>
 <pre class="mermaid">classDiagram
     class BaseHTTPRequestHandler
@@ -808,7 +922,8 @@ t.join()</code></pre>
 <h2>1. 개요</h2>
 <div class="tablewrap"><table><thead><tr><th>항목</th><th>내용</th></tr></thead><tbody><tr><td>목적</td><td>LLM의 도구 호출(tool use)을 직접 만져 보며 실험하는 로컬 웹 앱. 도구 탭 · MCP 탭 · 에이전트 탭 세 화면</td></tr><tr><td>주요 사용자</td><td>개인 또는 소규모 팀의 실험자. 한 번에 한 명이 쓰는 것을 전제로 한다</td></tr><tr><td>규모</td><td>단일 프로세스 + 연구원 자식 프로세스 2개. 동시 사용자 다수를 위한 설계가 아니다</td></tr><tr><td>언어</td><td>UI와 코드 주석, 데이터 모두 한국어</td></tr><tr><td>핵심 제약</td><td><strong>Python 표준 라이브러리만 사용.</strong> <code>requirements.txt</code>도 <code>pip install</code> 단계도 없다</td></tr></tbody></table></div>
 <p>세 화면의 역할:</p>
-<ol><li><strong>도구</strong>: 내장 메모 도구 4개를 모델에 주고 대화한다. 시스템 프롬프트와 모델 제공자를 바꿔 보고, 도구 호출 내역과 Context Window 사용량을 볼 수 있다.</li><li><strong>MCP</strong>: 외부 MCP 서버(stdio 또는 Streamable HTTP)를 붙이고, 가져온 도구를 서버 단위·도구 단위로 켜고 끈다.</li><li><strong>에이전트</strong>: 연구책임자가 자료조사 연구원과 실험수행 연구원에게 일을 나눠 맡긴다. 연구 자료 파일과 연구원 지침을 화면에서 관리한다.</li></ol>
+<ol><li><strong>도구</strong>: 내장 메모 도구 4개를 모델에 주고 대화한다. 시스템 프롬프트와 모델 제공자를 바꿔 보고, 도구 호출 내역과 Context Window 사용량을 볼 수 있다.</li><li><strong>MCP</strong>: 외부 MCP 서버(stdio 또는 Streamable HTTP)를 붙이고, 가져온 도구를 서버 단위·도구 단위로 켜고 끈다.</li><li><strong>에이전트</strong>: 연구책임자가 자료조사 연구원과 실험수행 연구원에게 일을 나눠 맡긴다. 연구 자료 파일과 연구원 지침(팝업 편집)을 화면에서 관리한다.</li></ol>
+<p>도구 탭에는 <strong>스킬</strong> 카드도 있다. 스킬은 모델이 필요할 때 읽는 지침 글이며, 기본 제공 <code>html</code> 스킬은 결과를 HTML 문서로 만든다. 답변 속 HTML 문서는 화면에서 미리보기와 다운로드 버튼으로 나온다.</p>
 <h2>2. 아키텍처 다이어그램</h2>
 <pre class="mermaid">graph TD
     Browser[&quot;브라우저 (static: index.html, app.js, style.css)&quot;]
@@ -819,6 +934,7 @@ t.join()</code></pre>
         Orch[&quot;orchestrator (연구책임자)&quot;]
         Runner[&quot;runner.run (도구 호출 루프)&quot;]
         Registry[&quot;registry (도구 모으기)&quot;]
+        Skills[&quot;skills, html_render (스킬과 HTML 변환)&quot;]
         Meter[&quot;context_window (계기판)&quot;]
     end
     subgraph Children[&quot;자식 프로세스 agents/_serve.py&quot;]
@@ -829,6 +945,7 @@ t.join()</code></pre>
         State[&quot;state/ (설정, 대화, 지침)&quot;]
         Data[&quot;data/ (메모, 연구 자료)&quot;]
         Mcpcfg[&quot;mcp_config.json, mcp_catalog.json&quot;]
+        SkillFiles[&quot;skills/ (SKILL.md), state/outputs/&quot;]
     end
     LLM[&quot;모델 API (OpenRouter 또는 Ollama)&quot;]
     McpSrv[&quot;MCP 서버 (stdio 또는 HTTP)&quot;]
@@ -849,20 +966,23 @@ t.join()</code></pre>
     Runner --&gt; LLM
     Runner --&gt; Registry
     Registry --&gt; McpSrv
+    Registry --&gt; Skills
+    Orch --&gt; Skills
+    Skills --&gt; SkillFiles
     Routes --&gt; State
     Routes --&gt; Data
     Registry --&gt; Mcpcfg
     Experiment --&gt;|&quot;read_data_file&quot;| Data</pre>
 <p>레이어별 역할:</p>
-<div class="tablewrap"><table><thead><tr><th>레이어</th><th>모듈</th><th>역할</th></tr></thead><tbody><tr><td>화면</td><td><code>static/*</code></td><td>프레임워크 없는 HTML·CSS·JS. 빌드 단계 없음</td></tr><tr><td>전송·보안</td><td><code>app.py</code> Handler, <code>lab/http_security.py</code></td><td>Host·Origin·Fetch Metadata·JSON·크기 검사, Basic 인증</td></tr><tr><td>업무 흐름</td><td><code>app.py</code>, <code>lab/orchestrator.py</code></td><td>라우트, 연구 실행, 연구원 프로세스 관리</td></tr><tr><td>도구 호출</td><td><code>lab/runner.py</code>, <code>lab/registry.py</code>, <code>lab/llm.py</code></td><td>모델 호출과 도구 실행 루프</td></tr><tr><td>도구</td><td><code>lab/tools.py</code>, <code>lab/datafile.py</code>, <code>lab/mcp_client.py</code></td><td>내장 메모 도구, 자료 읽기, MCP</td></tr><tr><td>설정·상태</td><td><code>lab/config.py</code>, <code>lab/roles.py</code></td><td>경로·포트·모델 설정, 역할과 지침</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>레이어</th><th>모듈</th><th>역할</th></tr></thead><tbody><tr><td>화면</td><td><code>static/*</code></td><td>프레임워크 없는 HTML·CSS·JS. 빌드 단계 없음</td></tr><tr><td>전송·보안</td><td><code>app.py</code> Handler, <code>lab/http_security.py</code></td><td>Host·Origin·Fetch Metadata·JSON·크기 검사, Basic 인증</td></tr><tr><td>업무 흐름</td><td><code>app.py</code>, <code>lab/orchestrator.py</code></td><td>라우트, 연구 실행, 연구원 프로세스 관리</td></tr><tr><td>도구 호출</td><td><code>lab/runner.py</code>, <code>lab/registry.py</code>, <code>lab/llm.py</code></td><td>모델 호출과 도구 실행 루프</td></tr><tr><td>도구</td><td><code>lab/tools.py</code>, <code>lab/datafile.py</code>, <code>lab/mcp_client.py</code>, <code>lab/skills.py</code>, <code>lab/html_render.py</code></td><td>내장 메모 도구, 자료 읽기, MCP, 스킬과 HTML 변환</td></tr><tr><td>설정·상태</td><td><code>lab/config.py</code>, <code>lab/roles.py</code></td><td>경로·포트·모델 설정, 역할과 지침</td></tr></tbody></table></div>
 <h2>3. 컴포넌트 설명</h2>
-<div class="tablewrap"><table><thead><tr><th>컴포넌트</th><th>책임</th></tr></thead><tbody><tr><td><code>app.py</code></td><td>서버 기동, 라우트 등록(<code>@route</code>), 상태 조립, 도구 탭 대화 처리</td></tr><tr><td><code>lab/runner.py</code></td><td><strong>모든 곳이 쓰는 단 하나의 도구 호출 루프.</strong> 모델은 무엇을 부를지만 정하고 이 파일이 실행한다</td></tr><tr><td><code>lab/orchestrator.py</code></td><td>자식 프로세스 기동·종료·정리, 위임 도구 생성, 진행 기록, 중지 요청</td></tr><tr><td><code>agents/_serve.py</code></td><td>연구원 한 명을 HTTP 서버로 띄운다. 두 연구원이 같은 코드를 쓰고 역할만 다르다</td></tr><tr><td><code>lab/roles.py</code></td><td>역할(지침, 포트, 도구 종류), 연구원 지침 편집·읽기</td></tr><tr><td><code>lab/registry.py</code></td><td>내장 + MCP 도구를 같은 모양의 항목으로 합친다. 이름이 겹치면 먼저 등록된 쪽</td></tr><tr><td><code>lab/llm.py</code></td><td>OpenAI 호환 Chat Completions 호출. 앱 내부 항목 ↔ API 메시지 변환</td></tr><tr><td><code>lab/mcp_client.py</code></td><td>stdio·HTTP MCP 클라이언트. <code>${VAR}</code> 치환은 연결 순간에만</td></tr><tr><td><code>lab/context_window.py</code></td><td>추정 후 실측으로 보정하는 사용량 계기판. 추가 API 호출 없음</td></tr><tr><td><code>lab/datafile.py</code></td><td><code>data/research/</code>에 한정한 읽기·업로드·삭제</td></tr><tr><td><code>lab/sandbox.py</code></td><td><strong>비활성.</strong> 코드 실행은 항상 거부한다</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>컴포넌트</th><th>책임</th></tr></thead><tbody><tr><td><code>app.py</code></td><td>서버 기동, 라우트 등록(<code>@route</code>), 상태 조립, 도구 탭 대화 처리</td></tr><tr><td><code>lab/runner.py</code></td><td><strong>모든 곳이 쓰는 단 하나의 도구 호출 루프.</strong> 모델은 무엇을 부를지만 정하고 이 파일이 실행한다</td></tr><tr><td><code>lab/orchestrator.py</code></td><td>자식 프로세스 기동·종료·정리, 위임 도구 생성, 진행 기록, 중지 요청</td></tr><tr><td><code>agents/_serve.py</code></td><td>연구원 한 명을 HTTP 서버로 띄운다. 두 연구원이 같은 코드를 쓰고 역할만 다르다</td></tr><tr><td><code>lab/roles.py</code></td><td>역할(지침, 포트, 도구 종류), 연구원 지침 편집·읽기</td></tr><tr><td><code>lab/registry.py</code></td><td>내장 + MCP 도구를 같은 모양의 항목으로 합친다. 이름이 겹치면 먼저 등록된 쪽</td></tr><tr><td><code>lab/llm.py</code></td><td>OpenAI 호환 Chat Completions 호출. 앱 내부 항목 ↔ API 메시지 변환</td></tr><tr><td><code>lab/mcp_client.py</code></td><td>stdio·HTTP MCP 클라이언트. <code>${VAR}</code> 치환은 연결 순간에만. 원격 서버의 추가 헤더, 도구 인자에 합치는 고정 인자(<code>fixed_args</code>), <code>mcpServers</code> JSON 읽기</td></tr><tr><td><code>lab/skills.py</code></td><td><code>skills/&lt;이름&gt;/SKILL.md</code>를 읽어 <code>use_skill</code> 도구와 스킬이 고른 도구(<code>SKILL_TOOLS</code>)를 만든다. 화면에서의 추가·수정·삭제. <strong>코드를 실행하지 않는다</strong></td></tr><tr><td><code>lab/html_render.py</code></td><td>마크다운 또는 JSON을 디자인된 HTML 문서로 변환(<code>ledger</code>, <code>dossier</code>)하고 <code>state/outputs/</code>에 저장. 모든 글을 이스케이프한다</td></tr><tr><td><code>lab/context_window.py</code></td><td>추정 후 실측으로 보정하는 사용량 계기판. 추가 API 호출 없음</td></tr><tr><td><code>lab/datafile.py</code></td><td><code>data/research/</code>에 한정한 읽기·업로드·삭제</td></tr><tr><td><code>lab/sandbox.py</code></td><td><strong>비활성.</strong> 코드 실행은 항상 거부한다</td></tr></tbody></table></div>
 <h3>3.1 설계 원칙</h3>
 <ul><li><strong>모델은 결정만, 실행은 앱이.</strong> 모든 도구는 <code>{name, description, parameters, source, call}</code> 딕셔너리이며 예외는 <code>{&quot;오류&quot;: ...}</code>로 모델에게 돌려줘 재시도하게 한다.</li><li><strong>역할 경계는 지침이 아니라 코드로.</strong> 연구책임자는 위임 도구 둘만, 자료조사는 MCP·웹 검색만, 실험수행은 <code>read_data_file</code>만 받는다. 연구원끼리는 서로를 부를 수단이 없다.</li><li><strong>실패해도 앱은 죽지 않는다.</strong> 깨진 상태 파일은 빈 값으로, 연결 실패한 MCP 서버는 건너뛰고 나머지를 쓴다.</li><li><strong>키는 밖으로 내지 않는다.</strong> <code>OPENROUTER_API_KEY</code>는 화면·로그·오류 메시지·상태 응답 어디에도 실리지 않는다.</li></ul>
 <h2>4. 기술 스택 선정 이유</h2>
 <div class="tablewrap"><table><thead><tr><th>선택</th><th>이유</th></tr></thead><tbody><tr><td>Python 표준 라이브러리만</td><td>설치 단계 제거. 어디서든 <code>python app.py</code>로 켠다</td></tr><tr><td><code>http.server</code> + <code>ThreadingHTTPServer</code></td><td>로컬 단일 사용자 용도에 충분하고 의존성이 없다</td></tr><tr><td>순수 HTML·CSS·JS</td><td>빌드 도구 없이 파일을 고치면 바로 반영된다</td></tr><tr><td>JSON 파일 저장</td><td>데이터가 작고 사람이 열어 보고 고칠 수 있다. DB를 둘 이유가 없다</td></tr><tr><td>연구원을 별도 프로세스로</td><td>역할 격리와 &quot;서로 직접 통신 없음&quot;을 눈에 보이게 만든다. 프로세스를 켜고 끄는 것이 곧 실험의 일부다</td></tr><tr><td>OpenAI 호환 API</td><td>OpenRouter와 Ollama를 같은 코드 경로로 지원</td></tr></tbody></table></div>
 <h2>5. 데이터 흐름</h2>
-<ul><li><strong>도구 탭 대화</strong>: 브라우저 → <code>/api/chat</code> → <code>runner.run</code> → 모델 ↔ 도구 → 대화 기록 저장 → 응답. 이전 턴의 API 항목을 <code>history</code>로 이어 넘긴다.</li><li><strong>연구</strong>: 브라우저 → <code>/api/research</code> → 연구책임자 루프 → 연구원 <code>/task</code> → (연구원 루프: 모델 ↔ MCP/자료 읽기) → 보고 → 연구책임자가 다음 위임 또는 최종 답. 진행 로그는 메모리에 쌓이고 화면이 <code>/api/research/progress</code>로 읽는다.</li><li><strong>자료</strong>: 화면이 파일을 base64로 보내면(<code>multipart</code> 파서를 두지 않으려는 선택) 서버가 <code>data/research/</code>에 쓴다. 실험수행 연구원만 <code>read_data_file</code>로 읽는다.</li><li><strong>설정</strong>: 화면 → 각 <code>/api/...</code> → <code>state/</code> 파일. 일부는 읽을 때마다 파일을 다시 본다(연구원 지침, 모델 설정은 수정 시각 비교).</li></ul>
+<ul><li><strong>도구 탭 대화</strong>: 브라우저 → <code>/api/chat</code> → <code>runner.run</code> → 모델 ↔ 도구 → 대화 기록 저장 → 응답. 이전 턴의 API 항목을 <code>history</code>로 이어 넘긴다.</li><li><strong>연구</strong>: 브라우저 → <code>/api/research</code> → 연구책임자 루프 → 연구원 <code>/task</code> → (연구원 루프: 모델 ↔ MCP/자료 읽기) → 보고 → 연구책임자가 다음 위임 또는 최종 답. 진행 로그는 메모리에 쌓이고 화면이 <code>/api/research/progress</code>로 읽는다.</li><li><strong>자료</strong>: 화면이 파일을 base64로 보내면(<code>multipart</code> 파서를 두지 않으려는 선택) 서버가 <code>data/research/</code>에 쓴다. 실험수행 연구원만 <code>read_data_file</code>로 읽는다.</li><li><strong>스킬로 HTML 만들기</strong>: 모델이 <code>use_skill</code>로 지침을 읽고 <code>render_html</code>에 마크다운을 넘김 → 변환기가 문서를 만들어 <code>state/outputs/&lt;id&gt;.html</code>에 저장하고 <code>[[html:id]]</code>를 돌려줌 → 답변에 그 표시 줄이 실림 → 화면이 <code>GET /api/output</code>으로 받아 sandbox iframe 미리보기와 다운로드 버튼으로 그림. 스킬은 도구 탭 대화와 연구책임자만 쓰고 연구원에게는 주지 않는다.</li><li><strong>설정</strong>: 화면 → 각 <code>/api/...</code> → <code>state/</code> 파일. 일부는 읽을 때마다 파일을 다시 본다(연구원 지침, 모델 설정은 수정 시각 비교).</li></ul>
 <h2>6. 동시성 모델</h2>
 <pre class="mermaid">graph TD
     P1[&quot;POST 요청 A&quot;] --&gt; L{&quot;전역 LOCK&quot;}
@@ -929,26 +1049,26 @@ sudo certbot --nginx -d agent.example.com             # HTTPS</code></pre>
 │ 이전 대화 / 도구 호출 내역 │
 │ [요청 입력] [보내기]      │
 └────────────────────────┘</code></pre>
-<ul><li><strong>모델 연결</strong>: 제공자를 고르고 모델 이름을 적은 뒤 [설정 저장]. Ollama는 도구 호출을 지원하는 모델이어야 하며 웹 검색은 쓰이지 않는다.</li><li><strong>역할 지시문</strong>: 시스템 프롬프트를 고친다. [초기화]로 기본값 복귀.</li><li><strong>대화</strong>: 요청을 보내면 모델이 도구를 골라 호출하고, 호출 내역이 아래에 펼쳐진다. 대화는 <code>state/chat_history.json</code>에 저장되어 다음 요청에 이어진다(최근 30턴). [대화 초기화]로 비운다.</li><li>내장 도구는 메모 파일 하나를 다루는 <code>memo_tool_1</code>(검색) · <code>2</code>(저장) · <code>3</code>(삭제) · <code>4</code>(문장 일부 수정)이다.</li></ul>
+<ul><li><strong>모델 연결</strong>: 제공자를 고르고 모델 이름을 적은 뒤 [설정 저장]. Ollama는 도구 호출을 지원하는 모델이어야 하며 웹 검색은 쓰이지 않는다.</li><li><strong>역할 지시문</strong>: 시스템 프롬프트를 고친다. [초기화]로 기본값 복귀. 기본 프롬프트는 &quot;처리 가능 여부가 불확실하면 답하기 전에 관련 도구를 먼저 호출해 본다&quot;는 규칙을 포함한다(도구를 부르지 않고 &quot;할 수 없다&quot;고 답하는 것을 줄이기 위해서다).</li><li><strong>스킬</strong>: 오른쪽 아래 카드. 스킬은 모델이 필요할 때 읽는 지침 글이다. [스킬 추가]나 목록의 스킬을 눌러 팝업에서 이름(영문 소문자·숫자·<code>-</code>·<code>_</code>), 설명, 쓸 도구, 지침을 쓰고 [저장]한다. 저장하면 다음 요청부터 적용되며 앱을 다시 켤 필요가 없다. 팝업 위의 [SKILL.md를 붙여 넣어 채우기]로 Claude Code의 SKILL.md를 그대로 붙여 넣을 수도 있다(설명은 300자로 줄고, <code>bun</code>·Artifact 같은 Claude Code 전용 내용이 있으면 경고한다). <strong>설명이 가장 중요하다.</strong> 모델은 설명만 보고 스킬을 읽을지 정한다. 스킬은 코드를 실행하지 않는다.</li><li><strong>HTML 문서</strong>: &quot;결과를 HTML로 만들어줘&quot;라고 하면 기본 제공 <code>html</code> 스킬이 문서를 만든다. 답변에 문서가 미리보기로 나오고 위쪽 [다운로드]로 파일을 받는다. 아래 [소스 보기]로 HTML 소스를 볼 수 있다. 미리보기에서는 스크립트가 실행되지 않고 외부 이미지·글꼴은 쓰이지 않는다. 디자인은 <code>ledger</code>(남색·금색)와 <code>dossier</code>(녹색·주황) 두 가지다.</li><li><strong>대화</strong>: 요청을 보내면 모델이 도구를 골라 호출하고, 호출 내역이 아래에 펼쳐진다. 대화는 <code>state/chat_history.json</code>에 저장되어 다음 요청에 이어진다(최근 30턴). [대화 초기화]로 비운다.</li><li>내장 도구는 메모 파일 하나를 다루는 <code>memo_tool_1</code>(검색) · <code>2</code>(저장) · <code>3</code>(삭제) · <code>4</code>(문장 일부 수정)이다.</li></ul>
 <h3>4.2 MCP 탭</h3>
-<ul><li><strong>MCP 서버</strong>: 목록의 서버를 켜고 끈다. 켜면 <code>mcp_config.json</code>에 기록되고 즉시 연결을 시도한다. 한 서버가 실패해도 나머지는 쓰인다. 실패 문구는 화면 위쪽 오류 띠에 나온다.</li><li><strong>원격 서버 추가</strong>: 서버 이름과 주소(Streamable HTTP)를 넣고 [추가]. 키가 필요하면 주소에 <code>${API_KEY}</code>처럼 이름만 적고 값은 <code>.env</code>에 둔다.</li><li><strong>사용 가능한 도구 / 제외된 도구</strong>: 도구 단위로 이 앱에서 쓰지 않도록 뺄 수 있다(복원 가능).</li><li>직접 추가한 서버만 삭제할 수 있다.</li></ul>
+<ul><li><strong>MCP 서버</strong>: 목록의 서버를 켜고 끈다. 켜면 <code>mcp_config.json</code>에 기록되고 즉시 연결을 시도한다. 한 서버가 실패해도 나머지는 쓰인다. 실패 문구는 화면 위쪽 오류 띠에 나온다.</li><li><strong>원격 서버 추가</strong>: 서버 이름과 주소(Streamable HTTP)를 넣고 [추가]. 키가 필요하면 주소에 <code>${API_KEY}</code>처럼 이름만 적고 값은 <code>.env</code>에 둔다. 인증 헤더가 필요하면 [추가 헤더]에 한 줄에 하나씩 <code>이름: 값</code>으로 적는다(예: <code>Authorization: Bearer ${API_KEY}</code>). 인증값을 도구 인자(<code>api_key</code> 등)로 받는 서버는 [고정 인자]에 <code>api_key: ${변수명}</code>으로 적는다. 모든 도구 호출에 자동으로 들어가고 모델에게는 보이지 않는다.</li><li><strong>JSON으로 추가</strong>: Claude Desktop 식 <code>{&quot;mcpServers&quot;: {&quot;이름&quot;: {&quot;url&quot;: &quot;...&quot;, &quot;headers&quot;: {...}}}}</code>를 [JSON으로 추가] 칸에 그대로 붙여 넣는다. 여러 서버를 한 번에 넣을 수 있고, 일부가 실패하면 성공한 것만 추가하고 이유를 알려 준다. 명령을 실행하는 서버(<code>command</code>)는 받지 않는다. JSON에 실제 키를 적으면 <code>state/mcp_custom.json</code>에 평문으로 저장되므로 <code>${변수명}</code>을 쓴다.</li><li><strong>사용 가능한 도구 / 제외된 도구</strong>: 도구 단위로 이 앱에서 쓰지 않도록 뺄 수 있다(복원 가능).</li><li>직접 추가한 서버만 삭제할 수 있다.</li></ul>
 <h3>4.3 에이전트 탭</h3>
 <pre><code class="lang-text">┌ 에이전트 상태 ─┐  ┌ 연구 요청 ─────────────────┐
-│ 연구책임자       │  │ [예시 질문] 입력창 [연구 시작][중지] │
+│ 연구책임자       │  │ 입력창 [연구 시작][중지]            │
 │ 자료조사 연구원   │  ├ 연구원 지침 ───────────────┤
-│ 실험수행 연구원   │  │ [연구원 선택▼] [기본값으로][저장]  │
+│ 실험수행 연구원   │  │ [지침 편집] → 팝업               │
 │ [모두 시작/종료] │  ├ 이어서 물어보기 (연구 후 표시) ─┤
 ├ 연구 자료 ─────┤  ├ 연구 진행: 지시 · 보고 · 작업 ──┤
 │ 파일 추가        │  └────────────────────────────┘
 │ 역할 연결 상태    │
 └────────────────┘</code></pre>
-<ul><li><strong>연구 요청</strong>: 질문을 적고 [연구 시작]. 꺼져 있는 연구원은 자동으로 뜬다. 진행 중에는 지시와 보고가 실시간으로 쌓이고, [중지]는 현재 맡겨 둔 일이 끝나는 대로 멈춘다.</li><li><strong>이어서 물어보기</strong>: 연구가 끝나면 나타난다. 앞선 연구의 문맥을 이어받아 조건만 바꿔 다시 계산시킬 수 있다. [새 연구]로 문맥을 지운다.</li><li><strong>연구 자료</strong>: CSV · TXT · JSON을 파일당 2MB까지 올린다. 같은 이름이면 덮어쓸지 묻고, 삭제는 되돌릴 수 없다. 실험수행 연구원만 이 파일을 읽는다.</li><li><strong>연구원 지침</strong>: 연구원을 고르고 지침을 고쳐 [저장]. <strong>다음 위임부터</strong> 적용되며 연구원을 다시 띄울 필요가 없다. [기본값으로]로 복귀. 지침에는 &quot;실행하지 않은 수치를 만들지 않는다&quot;, &quot;사업 가정은 자료 파일의 값만 쓴다&quot;, &quot;추진 여부를 판단하지 않는다&quot; 같은 앱이 의존하는 규칙이 들어 있으니 줄이거나 지울 때 주의한다.</li></ul>
+<ul><li><strong>연구 요청</strong>: 질문을 적고 [연구 시작]. 입력 칸은 처음에 비어 있다(예시 질문을 미리 채우지 않는다). 꺼져 있는 연구원은 자동으로 뜬다. 진행 중에는 지시와 보고가 실시간으로 쌓이고, [중지]는 현재 맡겨 둔 일이 끝나는 대로 멈춘다.</li><li><strong>이어서 물어보기</strong>: 연구가 끝나면 나타난다. 앞선 연구의 문맥을 이어받아 조건만 바꿔 다시 계산시킬 수 있다. [새 연구]로 문맥을 지운다.</li><li><strong>연구 자료</strong>: CSV · TXT · JSON을 파일당 2MB까지 올린다. 같은 이름이면 덮어쓸지 묻고, 삭제는 되돌릴 수 없다. 실험수행 연구원만 이 파일을 읽는다.</li><li><strong>연구원 지침</strong>: [지침 편집]을 누르면 팝업이 열린다. 연구원을 고르고 지침을 고쳐 [저장]. 저장하지 않고 닫아도(닫기 버튼, 배경 클릭, Esc) 쓰던 글은 남는다. <strong>다음 위임부터</strong> 적용되며 연구원을 다시 띄울 필요가 없다. [기본값으로]로 복귀. 지침에는 &quot;실행하지 않은 수치를 만들지 않는다&quot;, &quot;사업 가정은 자료 파일의 값만 쓴다&quot;, &quot;추진 여부를 판단하지 않는다&quot; 같은 앱이 의존하는 규칙이 들어 있으니 줄이거나 지울 때 주의한다.</li></ul>
 <h2>5. 관리자 기능</h2>
-<div class="tablewrap"><table><thead><tr><th>하고 싶은 일</th><th>방법</th></tr></thead><tbody><tr><td>모델 바꾸기</td><td>도구 탭 &gt; 모델 연결</td></tr><tr><td>연구원 프로세스 상태 보기·재시작</td><td>에이전트 탭 &gt; 에이전트 상태</td></tr><tr><td>연구원 지침 바꾸기</td><td>에이전트 탭 &gt; 연구원 지침</td></tr><tr><td>연구 자료 관리</td><td>에이전트 탭 &gt; 연구 자료</td></tr><tr><td>MCP 서버·도구 관리</td><td>MCP 탭</td></tr><tr><td>메모를 처음 상태로</td><td>앱을 끈 뒤 <code>data/notes.json</code> 삭제 후 재시작 (seed에서 다시 만들어짐)</td></tr><tr><td>모든 화면 설정 초기화</td><td>앱을 끈 뒤 <code>state/</code> 삭제</td></tr><tr><td>외부 공개</td><td>§3.2</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>하고 싶은 일</th><th>방법</th></tr></thead><tbody><tr><td>모델 바꾸기</td><td>도구 탭 &gt; 모델 연결</td></tr><tr><td>연구원 프로세스 상태 보기·재시작</td><td>에이전트 탭 &gt; 에이전트 상태</td></tr><tr><td>연구원 지침 바꾸기</td><td>에이전트 탭 &gt; 연구원 지침</td></tr><tr><td>연구 자료 관리</td><td>에이전트 탭 &gt; 연구 자료</td></tr><tr><td>MCP 서버·도구 관리</td><td>MCP 탭</td></tr><tr><td>스킬 추가·수정</td><td>도구 탭 &gt; 스킬</td></tr><tr><td>메모를 처음 상태로</td><td>앱을 끈 뒤 <code>data/notes.json</code> 삭제 후 재시작 (seed에서 다시 만들어짐)</td></tr><tr><td>모든 화면 설정 초기화</td><td>앱을 끈 뒤 <code>state/</code> 삭제</td></tr><tr><td>외부 공개</td><td>§3.2</td></tr></tbody></table></div>
 <p>사용자 계정·권한 관리 기능은 없다. 접속 통제는 §3.2의 신뢰 origin + 토큰이 전부다.</p>
 <h2>6. 운영 가이드</h2>
 <h3>6.1 백업</h3>
-<div class="tablewrap"><table><thead><tr><th>대상</th><th>내용</th></tr></thead><tbody><tr><td><code>state/</code></td><td>설정·대화·지침·사용자 추가 MCP 서버</td></tr><tr><td><code>data/research/</code></td><td>연구 자료 (저장소에는 샘플 <code>line_transition.csv</code>만 추적됨)</td></tr><tr><td><code>data/notes.json</code></td><td>메모 작업본</td></tr><tr><td><code>.env</code></td><td>키. 별도로 안전하게 보관</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>대상</th><th>내용</th></tr></thead><tbody><tr><td><code>state/</code></td><td>설정·대화·지침·사용자 추가 MCP 서버·만든 HTML 문서(<code>state/outputs/</code>)</td></tr><tr><td><code>skills/</code></td><td>스킬(SKILL.md). git이 추적한다</td></tr><tr><td><code>data/research/</code></td><td>연구 자료 (저장소에는 샘플 <code>line_transition.csv</code>만 추적됨)</td></tr><tr><td><code>data/notes.json</code></td><td>메모 작업본</td></tr><tr><td><code>.env</code></td><td>키. 별도로 안전하게 보관</td></tr></tbody></table></div>
 <p>앱이 꺼진 상태에서 복사하는 것이 가장 안전하다. 모델 설정·대화 기록·지침은 임시 파일을 거쳐 교체하므로 켜 둔 채 복사해도 대체로 깨지지 않는다.</p>
 <h3>6.2 모니터링과 로그</h3>
 <ul><li>앱 자체 로그는 거의 없다 (<code>log_message</code>를 비워 콘솔을 조용하게 둔다). 시작할 때 도구 목록과 MCP 연결 실패만 출력된다.</li><li>서버에서는 <code>journalctl -u common-agent -f</code>.</li><li>연구의 상세 기록(모델과 주고받은 원문, 도구 호출)은 화면의 <strong>연구 진행</strong> 영역에서 펼쳐 본다. 연구가 끝나면 메모리에서 사라지니 필요하면 그전에 확인한다.</li><li>포트 점검: <code>netstat -ano | findstr :8770</code> (Windows), <code>ss -ltnp | grep 877</code> (Ubuntu).</li></ul>

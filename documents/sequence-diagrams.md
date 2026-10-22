@@ -242,3 +242,71 @@ sequenceDiagram
 ```
 
 Windows에서 부모 창을 강제로 닫으면 `atexit`이 돌지 않아 자식이 남을 수 있다. 그래서 기동 때 `cleanup_stale`로 한 번 더 정리한다.
+
+## 8. 스킬로 HTML 문서 만들기
+
+```mermaid
+sequenceDiagram
+    participant B as 브라우저
+    participant A as app.py
+    participant R as runner.run
+    participant M as 모델 API
+    participant SK as skills
+    participant HR as html_render
+    participant FS as state outputs
+
+    B->>A: POST /api/chat 결과를 HTML로 만들어줘
+    A->>R: run(message, entries)
+    R->>M: 도구 목록 (use_skill 설명에 스킬 이름과 설명)
+    M-->>R: use_skill name html 호출
+    R->>SK: use_skill(html)
+    SK-->>R: html 스킬 지침 본문
+    R->>M: 지침을 읽은 결과
+    M-->>R: render_html title, markdown, register 호출
+    R->>SK: render_html(args)
+    SK->>HR: from_markdown 후 render
+    HR-->>SK: 이스케이프된 HTML 문서
+    SK->>HR: save(html)
+    HR->>FS: state outputs id html 저장
+    SK-->>R: 표시 줄 html 마커와 id
+    R->>M: 도구 결과
+    M-->>R: 최종 답변 (마커 한 줄 포함)
+    Note over R: 모델이 마커를 빠뜨리면 답변 끝에 붙인다
+    R-->>A: answer
+    A-->>B: ok, answer
+    B->>A: GET /api/output?id=id (마커를 만나면)
+    A->>FS: load(id)
+    A-->>B: HTML (sandbox 헤더)
+    Note over B: sandbox iframe 미리보기와 다운로드 버튼
+```
+
+오류 흐름: 마크다운이나 형식이 틀리면 `render_html`이 `{"오류": ...}`를 돌려주고 모델이 고쳐 다시 부른다. 에이전트 탭에서는 같은 흐름을 연구책임자가 쓴다(연구원에게는 스킬 도구가 없다).
+
+## 9. 스킬 추가·수정·삭제
+
+```mermaid
+sequenceDiagram
+    participant B as 브라우저
+    participant A as app.py
+    participant SK as skills
+    participant FS as skills 폴더
+    participant RG as registry
+
+    B->>A: POST /api/skills/save name, description, tools, body
+    A->>SK: save(...)
+    SK->>SK: 이름 형식, 길이, 허용된 도구인지 검사
+    alt 검사 실패
+        SK-->>A: ValueError
+        A-->>B: ok false, message
+    else 통과
+        SK->>FS: skills 이름 폴더의 SKILL.md 쓰기 (같은 이름이면 덮어씀)
+        A-->>B: ok, skills 목록
+        B->>A: GET /api/state (갱신)
+        A->>RG: build
+        RG->>SK: entries (매번 폴더를 다시 읽음)
+        SK-->>RG: use_skill과 스킬이 고른 도구
+        A-->>B: tools에 반영
+    end
+```
+
+앱을 다시 켜지 않아도 다음 요청부터 반영되는 이유는 `registry.build()`가 부를 때마다 스킬 폴더를 새로 읽기 때문이다. 삭제(`/api/skills/delete`)도 같은 방식으로 `SKILL.md`를 지우고 목록을 다시 읽는다.

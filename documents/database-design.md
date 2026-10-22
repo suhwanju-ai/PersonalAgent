@@ -31,6 +31,8 @@ Common Agent에는 **데이터베이스가 없다.** 모든 영속 데이터는 
 | `state/tool_overrides.json` | 내장 도구 설명문 덮어쓰기 | JSON `{도구: 설명}` | `registry.set_override` | 코드의 기본 설명 |
 | `state/mcp_custom.json` | 화면에서 주소로 추가한 MCP 서버 | JSON `{이름: {...}}` | `app.write_custom_servers` | 없음 |
 | `state/disabled_mcp_tools.json` | 제외한 MCP 도구 | JSON `[[서버, 도구], ...]` | `registry.disable_mcp_tool` | 제외 없음 |
+| `state/outputs/<id>.html` | 스킬 `render_html`이 만든 HTML 문서 (최근 50개) | HTML | `html_render.save` | 없음 |
+| `skills/<이름>/SKILL.md` | 스킬 (이름, 설명, 쓸 도구, 지침) | 머리말 + 마크다운 | `skills.save` | 없음 |
 | `state/data_path.txt` | 메모 파일 경로 덮어쓰기 | 텍스트(경로 한 줄) | (파일 직접 편집) | `data/notes.json` |
 | `mcp_config.json` | 지금 연결한 MCP 서버 | JSON `{"mcpServers": {...}}` | `app.write_mcp_config` | 연결 없음 |
 | `mcp_catalog.json` | 연결 가능한 MCP 서버 기본 목록 | JSON | (수동 편집) | 직접 추가한 서버만 |
@@ -87,7 +89,25 @@ Common Agent에는 **데이터베이스가 없다.** 모든 영속 데이터는 
 { "서버이름": { "label": "서버이름", "detail": "직접 추가한 원격 서버 · <주소>", "spec": {"url": "..."}, "custom": true } }
 ```
 
-서버 이름은 도구의 소속(`source`)이 된다. 예약어 `내장`·`위임`·`알 수 없음`은 쓸 수 없다. 기본 카탈로그와 이름이 겹치면 기본 카탈로그가 이긴다.
+서버 이름은 도구의 소속(`source`)이 된다. 예약어 `내장`·`위임`·`스킬`·`알 수 없음`은 쓸 수 없다. 기본 카탈로그와 이름이 겹치면 기본 카탈로그가 이긴다.
+
+### 3.4-1 `skills/<이름>/SKILL.md`
+
+```text
+---
+name: html
+description: 언제 쓰는지 한두 문장 (300자 이하)
+tools: render_html
+---
+
+(모델이 따를 지침, 마크다운)
+```
+
+Claude Code의 SKILL.md와 같은 형식이다. `tools`에는 `lab/skills.py`의 `SKILL_TOOLS`에 있는 이름만 인정하고 나머지는 무시한다. 폴더 이름과 `name`이 다르면 `name`(소문자로 바꿈)이 스킬 이름이다. 파일은 30KB까지이며, **스킬 폴더의 다른 파일(파이썬 등)은 읽지 않는다.** 이 폴더는 저장소에 들어 있고 `state/`와 달리 git이 추적한다.
+
+### 3.4-2 `state/outputs/<id>.html`
+
+`render_html`이 만든 완성된 HTML 문서다. `id`는 12자리 16진수. 모든 글을 이스케이프해 만든 파일이라 내려받아 열어도 스크립트가 없다. 50개를 넘으면 오래된 것부터 지운다. 대화 기록에는 `[[html:<id>]]` 표시 줄만 남고 문서 본문은 들어가지 않는다.
 
 ### 3.5 `mcp_config.json` · `mcp_catalog.json`
 

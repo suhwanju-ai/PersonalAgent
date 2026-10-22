@@ -155,6 +155,26 @@ curl -X POST http://127.0.0.1:8770/api/mcp/add -H "Content-Type: application/jso
 
 `${API_KEY}`는 문자 그대로 보낸다. 값은 연결할 때 `.env`에서 채워지고 어디에도 기록되지 않는다.
 
+### 시나리오 F — `mcpServers` JSON을 그대로 붙이기
+
+```bash
+curl -X POST http://127.0.0.1:8770/api/mcp/add_json -H "Content-Type: application/json" \
+  -H "Origin: http://127.0.0.1:8770" \
+  -d '{"json":"{\"mcpServers\":{\"my-docs\":{\"url\":\"http://localhost:8005/mcp\",\"headers\":{\"Authorization\":\"Bearer ${API_KEY}\"}}}}"}'
+```
+
+응답의 `added`는 추가된 서버 이름, `problems`는 건너뛴 서버와 이유다. `command`가 있는 서버(명령을 실행하는 서버)는 추가되지 않는다. 키는 `${API_KEY}`처럼 이름으로 적고 값은 `.env`에 둔다.
+
+### 시나리오 G — 스킬 추가하고 HTML 문서 받기
+
+```bash
+curl -X POST http://127.0.0.1:8770/api/skills/save -H "Content-Type: application/json" \
+  -H "Origin: http://127.0.0.1:8770" \
+  -d '{"name":"report-style","description":"보고서 문체 규칙. 보고서를 쓸 때 읽는다","tools":[],"body":"한 줄 요약으로 시작한다."}'
+```
+
+저장하면 다음 요청부터 모델이 `use_skill`로 이 지침을 읽을 수 있다. 기본 제공 `html` 스킬을 쓰는 요청(예: `/api/chat`에 "결과를 HTML 문서로 만들어줘")은 답변 끝에 `[[html:<id>]]` 한 줄을 돌려준다. 그 문서는 `GET /api/output?id=<id>`로 받을 수 있다.
+
 ## 4. 에러 코드와 대처
 
 | 상태 | 메시지 | 원인 / 대처 |

@@ -54,6 +54,21 @@ classDiagram
         +overrides() dict
         +disable_mcp_tool(source, name)
     }
+    class Skills {
+        +SKILL_TOOLS dict
+        +load_all() list
+        +entries() list
+        +view() dict
+        +save(name, description, tools, body) str
+        +remove(name) bool
+    }
+    class HtmlRender {
+        +REGISTERS dict
+        +render(doc, register) str
+        +from_markdown(md, title, eyebrow, subtitle, footer) dict
+        +save(html) str
+        +load(out_id) str
+    }
     class Llm {
         +call(system_prompt, items, declarations, web_search, temperature, trace) dict
         -_post(payload, settings, timeout, retries)
@@ -120,6 +135,11 @@ classDiagram
     Runner ..> Registry : 선언과 조회
     Registry ..> Tools : 내장 도구
     Registry ..> McpClient : MCP 도구
+    Registry ..> Skills : use_skill, render_html
+    Skills ..> HtmlRender : render_html 도구
+    Orchestrator ..> Skills : 연구책임자에게 스킬 도구
+    AppModule ..> Skills : 스킬 편집
+    AppModule ..> HtmlRender : 문서 제공
     Llm ..> Config : 설정과 키
     Orchestrator ..> Config : 포트와 경로
 ```
@@ -163,10 +183,11 @@ classDiagram
 |------|-----------|-------------|
 | BuiltinEntry | `registry._builtin()` — `memo_tool_1~4` | 도구 탭 대화 |
 | McpEntry | `mcp_client.connect_all()` | 도구 탭 대화, 자료조사 연구원 |
+| SkillEntry | `skills.entries()` — `use_skill`, `render_html` (source는 `스킬`) | 도구 탭 대화, 연구책임자 |
 | DelegateEntry | `orchestrator._delegate_entries()` — `delegate_research`, `delegate_experiment` | 연구책임자만 |
 | DataFileEntry | `roles.tools_for("experiment")` — `read_data_file` | 실험수행 연구원만 |
 
-도구 경계는 코드로 강제된다. 자료조사는 MCP 도구와 웹 검색만, 실험수행은 `read_data_file`만 받는다. 내장 메모 도구는 어느 연구원에게도 주지 않는다.
+도구 경계는 코드로 강제된다. 자료조사는 MCP 도구와 웹 검색만, 실험수행은 `read_data_file`만 받는다. 내장 메모 도구는 어느 연구원에게도 주지 않는다. 스킬 도구(`use_skill`, `render_html`)는 도구 탭 대화와 연구책임자만 받고 연구원에게는 주지 않는다.
 
 ## 3. HTTP 서버와 MCP 연결
 

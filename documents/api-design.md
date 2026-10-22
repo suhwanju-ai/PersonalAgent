@@ -39,7 +39,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 모든 POST는 전역 `LOCK` 하나로 줄 세워 처리한다. `/api/research`는 연구가 끝날 때까지(수 분) 이 락을 쥔다. 따라서:
 
 - 연구 중에도 응답해야 하는 POST는 `lock=False`로 등록한다: `/api/research/stop`, `/api/agents/prompt`, `/api/agents/prompt/reset`.
-- 연구 중에도 읽어야 하는 GET은 락을 잡지 않는다: `/api/context`, `/api/agents`, `/api/research/progress`. (`/api/state`만 락을 잡는다.)
+- 연구 중에도 읽어야 하는 GET은 락을 잡지 않는다: `/api/context`, `/api/agents`, `/api/research/progress`, `/api/output`. (`/api/state`만 락을 잡는다.)
 
 ## 2. GET 엔드포인트
 
@@ -50,6 +50,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 | `/api/state` | 도구 탭·MCP 탭이 쓰는 전체 상태 | 잡음 |
 | `/api/context` | Context Window 계기판 스냅샷 | 안 잡음 |
 | `/api/agents` | 세 역할의 프로세스 상태 + 연구원 지침 목록 | 안 잡음 |
+| `/api/output?id=<12자리 16진수>` | 스킬 `render_html`이 만든 HTML 문서. 없거나 형식이 틀리면 404. 응답에 `Content-Security-Policy: sandbox …`를 붙여 직접 열어도 스크립트가 돌지 않는다 | 안 잡음 |
 | `/api/research/progress` | 진행 중인 연구의 로그(폴링용) | 안 잡음 |
 
 ### GET `/api/state`
@@ -58,6 +59,8 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 {
   "tools": [{"name": "memo_tool_1", "source": "내장"}],
   "disabled_tools": [{"source": "국가법령", "name": "get_annexes"}],
+  "skills": {"skills": [{"name": "html", "description": "...", "tools": ["render_html"], "body": "..."}],
+             "tools": [{"name": "render_html", "description": "..."}]},
   "context_window": {"phase": "ready", "...": "측정값"},
   "chat": [{"message": "...", "answer": "...", "calls": [], "at": 1760000000.0}],
   "prompt": "현재 시스템 프롬프트",
@@ -118,8 +121,11 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 | `/api/data/delete` | `{name}` | `{ok, name, files}` | 잡음 |
 | `/api/mcp/toggle` | `{name, on}` | `{ok, errors}` | 잡음 |
 | `/api/mcp/add` | `{name, url, headers?, fixed_args?}` | `{ok, tools, errors}` | 잡음 |
+| `/api/mcp/add_json` | `{json}` (`mcpServers` JSON 글자) | `{ok, added, tools, problems}` | 잡음 |
 | `/api/mcp/remove` | `{name}` | `{ok, errors}` | 잡음 |
 | `/api/mcp/tool/remove` · `/restore` | `{source, name}` | `{ok}` | 잡음 |
+| `/api/skills/save` | `{name, description, tools, body}` | `{ok, name, skills}` | 잡음 |
+| `/api/skills/delete` | `{name}` | `{ok, skills}` | 잡음 |
 
 ### 3.1 도구 탭
 
@@ -178,9 +184,16 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 ### 3.4 MCP
 
 - `/api/mcp/toggle`: 카탈로그에 있는 서버만 켜고 끈다. 결과를 `mcp_config.json`에 쓰고 연결을 초기화한다.
-- `/api/mcp/add`: 이름 40자 이하, 예약어 `내장`·`위임`·`알 수 없음` 불가, 중복 불가, 주소는 `http://` 또는 `https://`이며 공백 불가. `headers`는 `이름: 값` 줄 문자열 또는 `{이름: 값}` 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, `Host`·`Content-Type`·`Accept`·`Mcp-*` 등 예약 헤더 불가. 키는 주소와 헤더 값에 `${변수명}`으로 적으면 연결 시점에 `.env`에서 채운다. 추가 즉시 연결한다. `fixed_args`는 `이름: 값` 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 `tools/call` 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다.
+- `/api/mcp/add`: 이름 40자 이하, 예약어 `내장`·`위임`·`스킬`·`알 수 없음` 불가, 중복 불가, 주소는 `http://` 또는 `https://`이며 공백 불가. `headers`는 `이름: 값` 줄 문자열 또는 `{이름: 값}` 객체이며 20개, 값 2,000자 이하, 제어 문자 불가, `Host`·`Content-Type`·`Accept`·`Mcp-*` 등 예약 헤더 불가. 키는 주소와 헤더 값에 `${변수명}`으로 적으면 연결 시점에 `.env`에서 채운다. 추가 즉시 연결한다. `fixed_args`는 `이름: 값` 줄 문자열 또는 객체(20개 이하)이며, 인증값을 도구 인자로 받는 서버용이다. 그 서버의 모든 `tools/call` 인자에 자동으로 합쳐지고(모델이 같은 이름을 넣어도 고정값 우선) 모델에게 주는 도구 스키마에서는 빠진다. 화면 목록에는 헤더·고정 인자의 이름만 보이고 값은 노출하지 않는다.
+- `/api/mcp/add_json`: Claude Desktop 식 `{"mcpServers": {이름: {url, headers?, fixed_args?}}}`(또는 `{이름: {...}}`만)를 붙여 넣어 한꺼번에 추가한다. 한 번에 20개까지. **원격(`url`) 서버만** 받고 `command`가 있는 항목은 이유와 함께 거절한다(화면에서 명령 실행 서버를 추가하는 것은 막는다). 항목마다 `/api/mcp/add`와 같은 검사를 거치며, 일부만 실패하면 성공한 서버는 추가하고 실패한 것은 `problems`에 `이름: 이유`로 돌려준다. 모두 실패하면 `ok: false`.
 - `/api/mcp/remove`: **직접 추가한 서버만** 삭제 가능(`state/mcp_custom.json`). 기본 카탈로그 서버는 연결만 끊을 수 있다.
 - `/api/mcp/tool/remove`·`restore`: 서버 단위가 아닌 **도구 단위**로 제외/복원 (`state/disabled_mcp_tools.json`).
+
+### 3.5 스킬
+
+- `/api/skills/save`: 스킬 한 개를 추가하거나 고친다. 이름은 `^[a-z0-9][a-z0-9_-]{0,39}$`(폴더 이름으로 쓰므로 경로를 우회할 수 없다), 설명 1~300자, 지침 1~20,000자, `tools`는 `lab/skills.py`의 `SKILL_TOOLS`에 있는 이름만(현재 `render_html`). 스킬은 30개까지. 같은 이름이 있으면 그 폴더의 `SKILL.md`를 덮어쓴다. 저장하면 다음 요청부터 모델에게 보이며 앱을 다시 켤 필요가 없다. 틀리면 `{ok: false, message}`.
+- `/api/skills/delete`: `skills/<폴더>/SKILL.md`를 지우고 폴더가 비면 폴더도 지운다. 되돌릴 수 없다.
+- 스킬은 **코드를 실행하지 않는다.** 글(지침)과 코드에 등록된 도구 이름만 담는다.
 
 ## 4. 연구원 서버 (:8771 / :8772)
 
@@ -205,7 +218,7 @@ GET과 POST 모두 먼저 `validate_local_host`를 통과해야 한다. POST는 
 | MCP(stdio) | 자식 프로세스 | 요청당 20초 | `mcp_config.json`의 `command`/`args` |
 | MCP(HTTP) | Streamable HTTP | 요청당 30초 | 프로토콜 버전 `2025-06-18` |
 
-모델 요청은 `temperature 0.0`, `stream: false`다. 웹 검색이 켜진 연구원(자료조사)은 OpenRouter일 때만 `plugins: [{"id":"web","engine":"native"}]`를 붙인다. Ollama에는 웹 검색 플러그인이 없다.
+모델 요청은 `temperature 0.0`, `stream: false`다. 웹 검색이 켜진 연구원(자료조사)은 OpenRouter일 때만 `plugins: [{"id":"web"}]`를 붙인다. `engine`은 지정하지 않는다. OpenRouter가 모델이 내장 검색을 지원하면 그것을, 아니면 Exa를 고른다(`"native"`로 못박으면 `gpt-4o-mini` 같은 모델에서 `HTTP 404 The requested model does not support native web search`가 난다). Ollama에는 웹 검색 플러그인이 없다.
 
 ## 6. 인증·비율 제한·페이지네이션
 

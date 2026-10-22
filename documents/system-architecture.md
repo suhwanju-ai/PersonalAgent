@@ -16,7 +16,9 @@
 
 1. **도구**: 내장 메모 도구 4개를 모델에 주고 대화한다. 시스템 프롬프트와 모델 제공자를 바꿔 보고, 도구 호출 내역과 Context Window 사용량을 볼 수 있다.
 2. **MCP**: 외부 MCP 서버(stdio 또는 Streamable HTTP)를 붙이고, 가져온 도구를 서버 단위·도구 단위로 켜고 끈다.
-3. **에이전트**: 연구책임자가 자료조사 연구원과 실험수행 연구원에게 일을 나눠 맡긴다. 연구 자료 파일과 연구원 지침을 화면에서 관리한다.
+3. **에이전트**: 연구책임자가 자료조사 연구원과 실험수행 연구원에게 일을 나눠 맡긴다. 연구 자료 파일과 연구원 지침(팝업 편집)을 화면에서 관리한다.
+
+도구 탭에는 **스킬** 카드도 있다. 스킬은 모델이 필요할 때 읽는 지침 글이며, 기본 제공 `html` 스킬은 결과를 HTML 문서로 만든다. 답변 속 HTML 문서는 화면에서 미리보기와 다운로드 버튼으로 나온다.
 
 ## 2. 아키텍처 다이어그램
 
@@ -30,6 +32,7 @@ graph TD
         Orch["orchestrator (연구책임자)"]
         Runner["runner.run (도구 호출 루프)"]
         Registry["registry (도구 모으기)"]
+        Skills["skills, html_render (스킬과 HTML 변환)"]
         Meter["context_window (계기판)"]
     end
     subgraph Children["자식 프로세스 agents/_serve.py"]
@@ -40,6 +43,7 @@ graph TD
         State["state/ (설정, 대화, 지침)"]
         Data["data/ (메모, 연구 자료)"]
         Mcpcfg["mcp_config.json, mcp_catalog.json"]
+        SkillFiles["skills/ (SKILL.md), state/outputs/"]
     end
     LLM["모델 API (OpenRouter 또는 Ollama)"]
     McpSrv["MCP 서버 (stdio 또는 HTTP)"]
@@ -60,6 +64,9 @@ graph TD
     Runner --> LLM
     Runner --> Registry
     Registry --> McpSrv
+    Registry --> Skills
+    Orch --> Skills
+    Skills --> SkillFiles
     Routes --> State
     Routes --> Data
     Registry --> Mcpcfg
@@ -74,7 +81,7 @@ graph TD
 | 전송·보안 | `app.py` Handler, `lab/http_security.py` | Host·Origin·Fetch Metadata·JSON·크기 검사, Basic 인증 |
 | 업무 흐름 | `app.py`, `lab/orchestrator.py` | 라우트, 연구 실행, 연구원 프로세스 관리 |
 | 도구 호출 | `lab/runner.py`, `lab/registry.py`, `lab/llm.py` | 모델 호출과 도구 실행 루프 |
-| 도구 | `lab/tools.py`, `lab/datafile.py`, `lab/mcp_client.py` | 내장 메모 도구, 자료 읽기, MCP |
+| 도구 | `lab/tools.py`, `lab/datafile.py`, `lab/mcp_client.py`, `lab/skills.py`, `lab/html_render.py` | 내장 메모 도구, 자료 읽기, MCP, 스킬과 HTML 변환 |
 | 설정·상태 | `lab/config.py`, `lab/roles.py` | 경로·포트·모델 설정, 역할과 지침 |
 
 ## 3. 컴포넌트 설명
@@ -88,7 +95,9 @@ graph TD
 | `lab/roles.py` | 역할(지침, 포트, 도구 종류), 연구원 지침 편집·읽기 |
 | `lab/registry.py` | 내장 + MCP 도구를 같은 모양의 항목으로 합친다. 이름이 겹치면 먼저 등록된 쪽 |
 | `lab/llm.py` | OpenAI 호환 Chat Completions 호출. 앱 내부 항목 ↔ API 메시지 변환 |
-| `lab/mcp_client.py` | stdio·HTTP MCP 클라이언트. `${VAR}` 치환은 연결 순간에만 |
+| `lab/mcp_client.py` | stdio·HTTP MCP 클라이언트. `${VAR}` 치환은 연결 순간에만. 원격 서버의 추가 헤더, 도구 인자에 합치는 고정 인자(`fixed_args`), `mcpServers` JSON 읽기 |
+| `lab/skills.py` | `skills/<이름>/SKILL.md`를 읽어 `use_skill` 도구와 스킬이 고른 도구(`SKILL_TOOLS`)를 만든다. 화면에서의 추가·수정·삭제. **코드를 실행하지 않는다** |
+| `lab/html_render.py` | 마크다운 또는 JSON을 디자인된 HTML 문서로 변환(`ledger`, `dossier`)하고 `state/outputs/`에 저장. 모든 글을 이스케이프한다 |
 | `lab/context_window.py` | 추정 후 실측으로 보정하는 사용량 계기판. 추가 API 호출 없음 |
 | `lab/datafile.py` | `data/research/`에 한정한 읽기·업로드·삭제 |
 | `lab/sandbox.py` | **비활성.** 코드 실행은 항상 거부한다 |
@@ -116,6 +125,7 @@ graph TD
 - **도구 탭 대화**: 브라우저 → `/api/chat` → `runner.run` → 모델 ↔ 도구 → 대화 기록 저장 → 응답. 이전 턴의 API 항목을 `history`로 이어 넘긴다.
 - **연구**: 브라우저 → `/api/research` → 연구책임자 루프 → 연구원 `/task` → (연구원 루프: 모델 ↔ MCP/자료 읽기) → 보고 → 연구책임자가 다음 위임 또는 최종 답. 진행 로그는 메모리에 쌓이고 화면이 `/api/research/progress`로 읽는다.
 - **자료**: 화면이 파일을 base64로 보내면(`multipart` 파서를 두지 않으려는 선택) 서버가 `data/research/`에 쓴다. 실험수행 연구원만 `read_data_file`로 읽는다.
+- **스킬로 HTML 만들기**: 모델이 `use_skill`로 지침을 읽고 `render_html`에 마크다운을 넘김 → 변환기가 문서를 만들어 `state/outputs/<id>.html`에 저장하고 `[[html:id]]`를 돌려줌 → 답변에 그 표시 줄이 실림 → 화면이 `GET /api/output`으로 받아 sandbox iframe 미리보기와 다운로드 버튼으로 그림. 스킬은 도구 탭 대화와 연구책임자만 쓰고 연구원에게는 주지 않는다.
 - **설정**: 화면 → 각 `/api/...` → `state/` 파일. 일부는 읽을 때마다 파일을 다시 본다(연구원 지침, 모델 설정은 수정 시각 비교).
 
 ## 6. 동시성 모델
