@@ -351,7 +351,12 @@ function drawLlmSettings(settings) {
 }
 
 async function refresh() {
-  STATE = await get("/api/state");
+  const next = await get("/api/state");
+  if (next.ok === false) {                    // 작업 중이라 아직 상태를 못 받았다. 화면은 그대로 둔다.
+    if (!STATE) $("errors") && ($("errors").textContent = next.message || "");
+    return;
+  }
+  STATE = next;
   draw();
 }
 

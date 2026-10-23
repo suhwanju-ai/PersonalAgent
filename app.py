@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -21,6 +22,7 @@ from lab import (config, context_window, datafile, html_render, http_security, l
 STATIC = os.path.join(config.ROOT, "static")
 CATALOG_PATH = os.path.join(config.ROOT, "mcp_catalog.json")
 LOCK = threading.Lock()
+LAST_STATE = [None]                   # 마지막으로 만든 /api/state 응답 (락이 막혀 있을 때 대신 준다)
 CONTEXT_METER = context_window.Meter()
 MAX_BODY = 8 * 1024 * 1024            # 파일을 base64로 실어 보내므로 상한을 둔다
 
@@ -379,6 +381,12 @@ def _mcp_add(p):
         return {"ok": False, "message": "같은 이름의 서버가 이미 있습니다."}
     if not url.startswith(("https://", "http://")) or any(c.isspace() for c in url):
         return {"ok": False, "message": "주소는 http:// 또는 https://로 시작해야 합니다."}
+    if config.is_link_local_host(urllib.parse.urlsplit(url).hostname):
+        return {"ok": False, "message": "링크로컬 주소는 쓸 수 없습니다."}
+    banned = mcp_client.reserved_placeholders(url, headers, fixed)
+    if banned:
+        return {"ok": False,
+                "message": "%s은(는) 앱이 쓰는 비밀이라 MCP 설정에서 참조할 수 없습니다." % ", ".join(banned)}
 
     custom = custom_servers()
     spec = {"url": url}
@@ -547,8 +555,19 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/static/"):
             self._static(path[len("/static/"):])
         elif path == "/api/state":
-            with LOCK:
-                self._json(state())
+            # 연구가 락을 몇 분씩 쥐므로 오래 기다리지 않는다. 바쁘면 직전 상태를 busy 표시와 함께 준다.
+            if LOCK.acquire(timeout=2):
+                try:
+                    snap = state()
+                    LAST_STATE[0] = snap
+                finally:
+                    LOCK.release()
+                self._json(snap)
+            elif LAST_STATE[0] is not None:
+                self._json(dict(LAST_STATE[0], busy=True))
+            else:
+                self._json({"ok": False, "busy": True,
+                            "message": "작업이 진행 중입니다. 끝난 뒤 다시 열어 주세요."}, 503)
         elif path == "/api/context":
             # /api/chat이 LOCK을 보유하는 동안에도 계기판을 읽는다.
             self._json(CONTEXT_METER.snapshot())
@@ -585,10 +604,14 @@ class Handler(BaseHTTPRequestHandler):
             )
             payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
         except http_security.RequestRejected as exc:
-            self._json({"ok": False, "message": str(exc)}, exc.status, exc.headers)
+            # 본문을 읽지 않았으므로 연결을 재사용하지 않는다 (남은 바이트가 다음 요청으로 읽히는 것을 막는다).
+            self.close_connection = True
+            self._json({"ok": False, "message": str(exc)}, exc.status,
+                       dict(exc.headers, Connection="close"))
             return
         except (ValueError, UnicodeDecodeError):
-            self._json({"ok": False, "message": "요청을 읽지 못했습니다."}, 400)
+            self.close_connection = True
+            self._json({"ok": False, "message": "요청을 읽지 못했습니다."}, 400, {"Connection": "close"})
             return
         if path in NO_LOCK:
             self._json(_run(handler, payload))  # 연구가 도는 중에도 받아야 한다

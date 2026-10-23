@@ -89,6 +89,9 @@ MCP_CONFIG_PATH = os.path.join(ROOT, "mcp_config.json")
 AGENTS_DIR = os.path.join(ROOT, "agents")
 
 
+DOTENV_KEYS = set()          # .env에서 읽어 온 변수 이름. stdio MCP 서버에는 넘기지 않는다.
+
+
 def load_env():
     """앱 폴더의 .env를 읽어 os.environ에 넣는다 (이미 있는 값은 유지)."""
     path = os.path.join(ROOT, ".env")
@@ -104,6 +107,7 @@ def load_env():
             value = value.strip().strip('"').strip("'")
             if key and key not in os.environ:
                 os.environ[key] = value
+                DOTENV_KEYS.add(key)
 
 
 load_env()
@@ -126,6 +130,14 @@ PORT = 8770                              # rag-lab(8765) · tool-lab(8766)과 �
 RESEARCH_PORT = 8771
 EXPERIMENT_PORT = 8772
 
+def is_link_local_host(hostname):
+    """호스트가 링크로컬 IP 리터럴(169.254.x.x, fe80::)인지. 호스트 이름은 검사하지 않는다."""
+    try:
+        return ipaddress.ip_address(hostname).is_link_local
+    except ValueError:
+        return False
+
+
 def _normalize_ollama_url(value):
     if not isinstance(value, str):
         raise ValueError("Ollama 주소를 문자열로 입력해 주세요.")
@@ -139,11 +151,7 @@ def _normalize_ollama_url(value):
         parsed.port
     except ValueError:
         raise ValueError("Ollama 주소의 포트 번호가 올바르지 않습니다.")
-    try:
-        link_local = ipaddress.ip_address(parsed.hostname).is_link_local
-    except ValueError:
-        link_local = False                       # IP 리터럴이 아닌 호스트 이름
-    if link_local:
+    if is_link_local_host(parsed.hostname):
         # 클라우드 메타데이터(169.254.169.254 등)로 요청이 나가지 않게 막는다.
         raise ValueError("링크로컬 주소는 Ollama 주소로 쓸 수 없습니다.")
     if not parsed.path or parsed.path == "/":

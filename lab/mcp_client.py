@@ -39,6 +39,18 @@ LAUNCH_LOG = []              # 어떤 서버를 어떤 실행 파일로 띄웠�
 # 채운 주소는 메모리에만 있고 어디에도 기록하지 않는다.
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+APP_SECRETS = frozenset({"OPENROUTER_API_KEY", "APP_ACCESS_TOKEN"})
+
+
+def reserved_placeholders(*values):
+    """값(문자열, 또는 문자열 값을 가진 dict)에 앱 비밀을 가리키는 ${VAR}가 있으면 그 이름들을 돌려준다."""
+    found = set()
+    for value in values:
+        if isinstance(value, dict):
+            value = " ".join(str(v) for v in value.values())
+        if isinstance(value, str):
+            found.update(n for n in _ENV_PATTERN.findall(value) if n in APP_SECRETS)
+    return sorted(found)
 
 
 class MissingEnv(Exception):
@@ -53,7 +65,8 @@ def expand_env(value):
 
     def replace(match):
         name = match.group(1)
-        found = os.environ.get(name, "").strip()
+        # 앱 자신의 비밀은 값이 없는 것으로 취급한다. 화면에서 추가한 서버가 헤더로 빼 가지 못하게 한다.
+        found = "" if name in APP_SECRETS else os.environ.get(name, "").strip()
         if not found:
             missing.append(name)
             return ""
@@ -163,7 +176,9 @@ def _resolve_path(value, cwd):
 
 
 def _child_env(extra=None):
-    env = dict(os.environ)
+    # .env의 비밀(OPENROUTER_API_KEY 등)은 서드파티 서버에 상속시키지 않는다.
+    # 서버가 필요로 하는 값은 설정의 env에 ${VAR}로 명시한다.
+    env = {k: v for k, v in os.environ.items() if k not in config.DOTENV_KEYS}
     env.update(extra or {})
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
@@ -283,6 +298,16 @@ def parse_servers_json(text):
     return out
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """리다이렉트를 따라가지 않는다. 따라가면 Authorization 같은 헤더가 다른 호스트로 넘어간다."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class HttpServer(object):
     def __init__(self, name, url, headers=None):
         self.name = name
@@ -304,7 +329,7 @@ class HttpServer(object):
         request = urllib.request.Request(
             self.url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers=headers, method="POST")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             found = response.headers.get("Mcp-Session-Id")
             if found:
                 self.session = found
