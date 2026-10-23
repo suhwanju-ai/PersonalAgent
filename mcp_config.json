@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "ai-doc-manager": {
-      "url": "http://localhost:8005/mcp",
+      "url": "http://59.13.79.69:8005/mcp",
       "headers": {
         "Authorization": "Bearer ${AI_DOC_MANAGER_API_KEY}"
       }
