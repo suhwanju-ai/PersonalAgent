@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s)
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 let STATE = null;
 let LLM_SETTINGS_CACHE = null;
@@ -465,7 +465,8 @@ function drawClaudeSkills(r) {
   $("claudeSkillList").innerHTML = r.items.length ? r.items.map((it) => {
     const skipped = (it.skipped || []).length
       ? `<div class="cs-skipped"><b>건너뜀</b> ${it.skipped.map((x) => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
-    const done = CS_RESULT[it.folder] ? `<div class="cs-done" role="status">${esc(CS_RESULT[it.folder])}</div>` : "";
+    const res = CS_RESULT[it.folder];
+    const done = res ? `<div class="${res.ok ? "cs-done" : "cs-reason"}" role="status">${esc(res.text)}</div>` : "";
     const head = `<div class="cs-main"><b>${esc(it.name || it.folder)}</b>`
       + (it.ok ? `<small class="skill-badge">참고 파일 ${Number(it.files) || 0}</small>` : "")
       + (it.exists ? '<small class="skill-badge warn">이미 있음</small>' : "")
@@ -478,6 +479,7 @@ function drawClaudeSkills(r) {
   }).join("") : '<div class="empty">가져올 수 있는 스킬이 없습니다. SKILL.md가 든 폴더가 있어야 합니다.</div>';
 }
 async function openClaudeSkills() {
+  for (const k of Object.keys(CS_RESULT)) delete CS_RESULT[k];
   $("claudeSkillList").innerHTML = '<div class="empty">불러오는 중…</div>';
   $("claudeSkillDialog").showModal();
   $("closeClaudeSkill").focus();
@@ -504,15 +506,15 @@ $("claudeSkillList").addEventListener("click", async (ev) => {
     const row = btn.closest(".cs-row");
     row.querySelector(".cs-warn")?.remove();
     row.querySelector(".cs-done")?.remove();
-    row.insertAdjacentHTML("beforeend", '<div class="cs-warn" role="alert">같은 이름의 스킬이 있습니다. 한 번 더 누르면 기존 스킬(참고 파일 포함)을 새 내용으로 바꿉니다.</div>');
+    row.insertAdjacentHTML("beforeend", '<div class="cs-warn">같은 이름의 스킬이 있습니다. 한 번 더 누르면 기존 스킬(참고 파일 포함)을 새 내용으로 바꿉니다.</div>');
     return;
   }
   btn.disabled = true;
   try {
     const r = await post("/api/skills/import", { folder, overwrite });
-    if (!r.ok) { CS_RESULT[folder] = r.message || "가져오지 못했습니다."; }
+    if (!r.ok) { CS_RESULT[folder] = { ok: false, text: r.message || "가져오지 못했습니다." }; }
     else {
-      CS_RESULT[folder] = `가져왔습니다. 복사 ${r.copied}개` + ((r.skipped || []).length ? `, 건너뜀 ${r.skipped.length}개` : "") + ".";
+      CS_RESULT[folder] = { ok: true, text: `가져왔습니다. 복사 ${r.copied}개` + ((r.skipped || []).length ? `, 건너뜀 ${r.skipped.length}개` : "") + "." };
       drawSkills(r.skills);
       refresh();
     }
@@ -520,7 +522,8 @@ $("claudeSkillList").addEventListener("click", async (ev) => {
     if (list.ok) drawClaudeSkills(list);
   } catch (e) {
     btn.disabled = false;
-    btn.closest(".cs-row").insertAdjacentHTML("beforeend", `<div class="cs-reason" role="alert">${esc(e.message)}</div>`);
+    delete btn.dataset.confirm;                 // 다시 누르면 두 번째 확인부터 받는다
+    btn.closest(".cs-row").insertAdjacentHTML("beforeend", `<div class="cs-reason">${esc(e.message)}</div>`);
   }
 });
 
