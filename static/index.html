@@ -89,6 +89,7 @@
       <div class="card-head"><div><h2>스킬</h2><span class="subtle">모델이 필요할 때 지침을 읽습니다</span></div><span class="count" id="chipSkills">0개</span></div>
       <div id="skillList" class="skill-list"></div>
       <button class="manage-link" id="addSkill" type="button">스킬 추가 <span aria-hidden="true">+</span></button>
+      <button class="manage-link" id="importClaudeSkills" type="button">Claude Code 스킬 가져오기</button>
     </section>
   </aside>
 </main>
@@ -199,14 +200,22 @@
   </details>
   <div class="skill-form">
     <label for="skillName">이름</label><input id="skillName" type="text" maxlength="40" autocomplete="off" placeholder="예: report-style (영문 소문자·숫자·-·_)">
-    <label for="skillDesc">설명</label><input id="skillDesc" type="text" maxlength="300" autocomplete="off" placeholder="언제 쓰는 스킬인지. 모델이 이 설명을 보고 읽을지 정합니다">
+    <label for="skillDesc">설명</label><input id="skillDesc" type="text" maxlength="500" autocomplete="off" placeholder="언제 쓰는 스킬인지. 모델이 이 설명을 보고 읽을지 정합니다">
     <label>쓸 도구</label><div id="skillTools" class="skill-tools"></div>
     <label for="skillBody">지침</label><textarea id="skillBody" rows="14" maxlength="20000" spellcheck="false" placeholder="모델이 따를 지침을 씁니다"></textarea>
   </div>
   <p class="hint role-prompt-hint">스킬은 글과 도구 이름만 담고 코드를 실행하지 않습니다. 쓸 수 있는 도구는 앱에 등록된 것만 고를 수 있습니다. 설명이 구체적일수록 모델이 알맞은 때 읽습니다.</p>
+  <p class="hint role-prompt-hint">저장하면 SKILL.md만 다시 쓰며, 앱이 지원하지 않는 머리말 항목은 사라집니다. 참고 파일은 그대로 둡니다.</p>
   <div id="skillNote" class="meta role-prompt-note" aria-live="polite"></div>
 </dialog>
 
-<script src="/static/app.js?v=state-busy-21"></script>
+<dialog id="claudeSkillDialog" aria-labelledby="claudeSkillTitle">
+  <div class="card-head"><div><h2 id="claudeSkillTitle">Claude Code 스킬 가져오기</h2><span class="subtle" id="claudeSkillDir">~/.claude/skills</span></div>
+    <div class="head-actions"><button class="ghost" id="closeClaudeSkill" type="button">닫기</button></div></div>
+  <div id="claudeSkillList" class="cs-list" aria-live="polite"></div>
+  <p class="hint role-prompt-hint">글 지침과 참고 파일(.md·.txt·.json·.csv·.yaml)만 복사합니다. scripts 폴더 등 코드는 가져오지 않고 실행하지도 않습니다. Claude Code 전용 내용은 이 앱에서 동작하지 않을 수 있습니다.</p>
+</dialog>
+
+<script src="/static/app.js?v=state-busy-22"></script>
 </body>
 </html>

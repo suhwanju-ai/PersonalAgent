@@ -392,12 +392,20 @@ function drawChat(turns) {
 let SKILLS = { skills: [], tools: [] };
 let SKILL_EDITING = null;           // 고치는 스킬의 이름. 새로 만드는 중이면 null
 
+function skillBadges(s) {
+  const b = [];
+  if (s.files > 0) b.push(`참고 파일 ${s.files}`);
+  if (s.model_invocable === false) b.push("모델 호출 금지");
+  if ((s.unsupported_tools || []).length) b.push(`지원 안 하는 도구: ${s.unsupported_tools.join(", ")}`);
+  return b.length ? `<em class="skill-badges">${b.map((x) => `<small class="skill-badge${x.startsWith("참고") ? "" : " warn"}">${esc(x)}</small>`).join("")}</em>` : "";
+}
+
 function drawSkills(view) {
   if (!view) return;
   SKILLS = view;
   $("chipSkills").textContent = `${view.skills.length}개`;
   $("skillList").innerHTML = view.skills.length ? view.skills.map((s) =>
-    `<button type="button" class="skill-row" data-name="${esc(s.name)}"><b>${esc(s.name)}</b><span>${esc(s.description)}</span></button>`).join("")
+    `<button type="button" class="skill-row" data-name="${esc(s.name)}"><b>${esc(s.name)}</b>${skillBadges(s)}<span>${esc(s.description)}</span></button>`).join("")
     : '<div class="empty">등록된 스킬이 없습니다.</div>';
 }
 
@@ -429,45 +437,91 @@ async function openSkill(name) {
   $("skillDialog").showModal();
   (s ? $("skillDesc") : $("skillName")).focus();
 }
-/* Claude Code의 SKILL.md를 그대로 붙여 넣어 칸을 채운다. 서버(lab/skills.py)와 같은 규칙으로 읽는다. */
-function importSkillMd(raw) {
-  const text = String(raw).replace(/\r\n/g, "\n").trim();
-  const meta = {};
-  let body = text;
-  if (text.startsWith("---\n")) {
-    const end = text.indexOf("\n---", 4);
-    if (end > 0) {
-      text.slice(4, end).split("\n").forEach((line) => {
-        const i = line.indexOf(":");
-        if (i > 0) {
-          let v = line.slice(i + 1).trim();
-          if (v.length >= 2 && v[0] === v[v.length - 1] && (v[0] === '"' || v[0] === "'")) v = v.slice(1, -1);   // 짝이 맞는 바깥 따옴표만
-          meta[line.slice(0, i).trim().toLowerCase()] = v;
-        }
-      });
-      body = text.slice(end + 4).replace(/^\n+/, "");
-    }
+/* Claude Code의 SKILL.md를 그대로 붙여 넣어 칸을 채운다. 읽는 규칙은 서버(lab/skills.py parse_form)가 맡는다. */
+$("skillImportRun").addEventListener("click", async () => {
+  const text = $("skillImportText").value;
+  if (!text.trim()) { $("skillImportNote").textContent = "붙여 넣은 내용이 없습니다."; return; }
+  $("skillImportRun").disabled = true;
+  try {
+    const res = await post("/api/skills/parse", { text });
+    if (!res.ok) { $("skillImportNote").textContent = res.message || "읽지 못했습니다."; return; }
+    const r = res.skill;
+    if (!SKILL_EDITING && r.name) $("skillName").value = r.name;        // 고치는 중이면 이름은 그대로 둔다
+    if (r.description) $("skillDesc").value = r.description;
+    $("skillBody").value = r.body;
+    $("skillTools").querySelectorAll("input").forEach((i) => { i.checked = r.tools.includes(i.value); });
+    $("skillImportNote").textContent = ["채웠습니다. 확인하고 저장하세요.", ...(r.notes || [])].join(" ");
+  } catch (e) {
+    $("skillImportNote").textContent = e.message;
+  } finally {
+    $("skillImportRun").disabled = false;
   }
-  const notes = [];
-  const desc = (meta.description || "").replace(/\s+/g, " ");
-  if (desc.length > 300) notes.push(`설명이 ${desc.length}자라 300자로 줄였습니다. 언제 쓰는지가 남도록 다듬어 주세요.`);
-  const have = SKILLS.tools.map((t) => t.name);
-  const tools = (meta.tools || "").split(/[,\s]+/).filter((t) => have.includes(t));
-  // Claude Code 전용 내용은 이 앱에 없는 도구·명령을 부르게 만든다.
-  if (/\bbun\b|Artifact|localhost:31337|~\/\.claude|Voice Notification|\bTools\/\w+\.ts/i.test(body)) {
-    notes.push("지침에 Claude Code 전용 내용(bun, Artifact, 음성 알림 등)이 있습니다. 이 앱에는 없으니 지우거나 바꿔 주세요.");
-  }
-  return { name: (meta.name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40),
-           description: desc.slice(0, 300), tools, body, notes };
+});
+
+/* ~/.claude/skills 가져오기. 폴더 이름만 서버에 보낸다. 이미 있는 스킬은 행 안에서 두 번 눌러야 덮어쓴다. */
+const CS_RESULT = {};               // 폴더 이름 -> 방금 가져온 결과 문구(목록을 다시 그려도 남긴다)
+function drawClaudeSkills(r) {
+  $("claudeSkillDir").textContent = r.dir || "~/.claude/skills";
+  $("claudeSkillList").innerHTML = r.items.length ? r.items.map((it) => {
+    const skipped = (it.skipped || []).length
+      ? `<div class="cs-skipped"><b>건너뜀</b> ${it.skipped.map((x) => `<code>${esc(x)}</code>`).join(" ")}</div>` : "";
+    const done = CS_RESULT[it.folder] ? `<div class="cs-done" role="status">${esc(CS_RESULT[it.folder])}</div>` : "";
+    const head = `<div class="cs-main"><b>${esc(it.name || it.folder)}</b>`
+      + (it.ok ? `<small class="skill-badge">참고 파일 ${Number(it.files) || 0}</small>` : "")
+      + (it.exists ? '<small class="skill-badge warn">이미 있음</small>' : "")
+      + `<span>${esc(it.ok ? it.description : it.folder)}</span></div>`;
+    const btn = it.ok
+      ? `<button type="button" class="ghost compact cs-go" data-folder="${esc(it.folder)}" data-exists="${it.exists ? 1 : 0}">가져오기</button>`
+      : '<button type="button" class="ghost compact" disabled>가져올 수 없음</button>';
+    return `<div class="cs-row${it.ok ? "" : " bad"}"><div class="cs-top">${head}${btn}</div>`
+      + (it.ok ? "" : `<div class="cs-reason">${esc(it.reason)}</div>`) + skipped + done + "</div>";
+  }).join("") : '<div class="empty">가져올 수 있는 스킬이 없습니다. SKILL.md가 든 폴더가 있어야 합니다.</div>';
 }
-$("skillImportRun").addEventListener("click", () => {
-  if (!$("skillImportText").value.trim()) { $("skillImportNote").textContent = "붙여 넣은 내용이 없습니다."; return; }
-  const r = importSkillMd($("skillImportText").value);
-  if (!SKILL_EDITING && r.name) $("skillName").value = r.name;        // 고치는 중이면 이름은 그대로 둔다
-  if (r.description) $("skillDesc").value = r.description;
-  $("skillBody").value = r.body;
-  $("skillTools").querySelectorAll("input").forEach((i) => { i.checked = r.tools.includes(i.value); });
-  $("skillImportNote").textContent = ["채웠습니다. 확인하고 저장하세요.", ...r.notes].join(" ");
+async function openClaudeSkills() {
+  $("claudeSkillList").innerHTML = '<div class="empty">불러오는 중…</div>';
+  $("claudeSkillDialog").showModal();
+  $("closeClaudeSkill").focus();
+  try {
+    const r = await post("/api/skills/importable", {});
+    if (!r.ok) { $("claudeSkillList").innerHTML = `<div class="empty">${esc(r.message || "목록을 불러오지 못했습니다.")}</div>`; return; }
+    drawClaudeSkills(r);
+  } catch (e) {
+    $("claudeSkillList").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+$("importClaudeSkills").addEventListener("click", openClaudeSkills);
+$("closeClaudeSkill").addEventListener("click", () => $("claudeSkillDialog").close());
+$("claudeSkillDialog").addEventListener("click", (ev) => { if (ev.target === $("claudeSkillDialog")) $("claudeSkillDialog").close(); });
+$("claudeSkillList").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest(".cs-go");
+  if (!btn) return;
+  const folder = btn.dataset.folder;
+  const overwrite = btn.dataset.exists === "1";
+  if (overwrite && btn.dataset.confirm !== "1") {          // 첫 클릭은 확인만 받는다
+    btn.dataset.confirm = "1";
+    btn.textContent = "덮어쓰기 확인";
+    btn.classList.add("danger");
+    const row = btn.closest(".cs-row");
+    row.querySelector(".cs-warn")?.remove();
+    row.querySelector(".cs-done")?.remove();
+    row.insertAdjacentHTML("beforeend", '<div class="cs-warn" role="alert">같은 이름의 스킬이 있습니다. 한 번 더 누르면 기존 스킬(참고 파일 포함)을 새 내용으로 바꿉니다.</div>');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const r = await post("/api/skills/import", { folder, overwrite });
+    if (!r.ok) { CS_RESULT[folder] = r.message || "가져오지 못했습니다."; }
+    else {
+      CS_RESULT[folder] = `가져왔습니다. 복사 ${r.copied}개` + ((r.skipped || []).length ? `, 건너뜀 ${r.skipped.length}개` : "") + ".";
+      drawSkills(r.skills);
+      refresh();
+    }
+    const list = await post("/api/skills/importable", {});
+    if (list.ok) drawClaudeSkills(list);
+  } catch (e) {
+    btn.disabled = false;
+    btn.closest(".cs-row").insertAdjacentHTML("beforeend", `<div class="cs-reason" role="alert">${esc(e.message)}</div>`);
+  }
 });
 
 $("skillList").addEventListener("click", (ev) => {

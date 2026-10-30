@@ -639,3 +639,24 @@ main.panel.agents-layout.on[data-panel="agents"] > .agents-main {
 .skill-tool { display:flex; align-items:flex-start; gap:8px; font-weight:400 !important; font-size:12.5px !important; }
 .skill-tool code { font:12px Consolas,monospace; }
 @media (max-width:760px) { .skill-form { grid-template-columns:1fr; } #skillDialog .card-head { flex-direction:column; align-items:stretch; } }
+.skill-badges { display:flex; flex-wrap:wrap; gap:4px; margin-top:3px; font-style:normal; }
+.skill-badge { display:inline-block; padding:1px 7px; border-radius:5px; background:#eef2f8; color:#556880; font-size:11px; font-weight:500; overflow-wrap:anywhere; }
+.skill-badge.warn { background:#fdf0d8; color:#8a5a00; }
+#claudeSkillDialog { width:min(780px, calc(100vw - 32px)); max-height:88vh; padding:0; border:1px solid var(--line); border-radius:14px; background:#fff; color:var(--ink); box-shadow:0 18px 60px rgba(0,0,0,.25); }
+#claudeSkillDialog[open] { display:flex; flex-direction:column; overflow:auto; }
+#claudeSkillDialog::backdrop { background:rgba(30,28,24,.45); }
+#claudeSkillDialog .card-head { padding:14px 16px; align-items:center; }
+#claudeSkillDialog .role-prompt-hint { margin:0; padding:9px 16px; border-top:1px solid #eeece6; font-size:11.5px; }
+.cs-row { padding:10px 16px; border-top:1px solid #eeece6; }
+.cs-top { display:flex; align-items:flex-start; gap:10px; }
+.cs-main { flex:1; min-width:0; }
+.cs-main b { font:600 12.5px Consolas,monospace; margin-right:6px; overflow-wrap:anywhere; }
+.cs-main span { display:block; margin-top:2px; color:#8a877e; font-size:11.5px; line-height:1.5; overflow-wrap:anywhere; }
+.cs-go { flex:none; }
+.cs-go.danger { border-color:var(--warn); color:var(--warn); }
+.cs-row.bad .cs-main { opacity:.7; }
+.cs-reason, .cs-warn { margin-top:6px; font-size:11.5px; color:var(--warn); line-height:1.5; }
+.cs-skipped { margin-top:6px; font-size:11.5px; color:#8a877e; line-height:1.7; overflow-wrap:anywhere; }
+.cs-skipped code { font:11px Consolas,monospace; background:#f1efe9; padding:0 4px; border-radius:3px; }
+.cs-done { margin-top:6px; font-size:11.5px; color:#0f7b6c; }
+@media (max-width:760px) { .cs-top { flex-direction:column; } .cs-go { align-self:stretch; } }
