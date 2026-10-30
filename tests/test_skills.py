@@ -146,6 +146,14 @@ class ReferenceFileTests(SkillsTestCase):
             self.assertNotIn(self.tmp, str(r), bad)
         self.assertIn("오류", skills.read_file("ref", None))
 
+    def test_read_rejects_windows_name_tricks(self):
+        self.make({"scripts/run.md": "SCRIPTBODY", ".hidden/h.md": "HIDDENBODY"})
+        for bad in ["scripts /run.md", "scripts./run.md", "Scripts/run.md", "scripts/run.md ",
+                    ".hidden/h.md", "HIDDEN~1/h.md", "a~1/run.md"]:
+            r = skills.read_file("ref", bad)
+            self.assertIn("오류", r, bad)
+            self.assertNotIn("BODY", str(r), bad)
+
     def test_read_rejects_link_escape(self):
         base = self.make({"references/a.md": "A"})
         outside = tempfile.mkdtemp()

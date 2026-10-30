@@ -125,6 +125,8 @@ def _ref_parts_ok(parts):
     for part in parts:
         if not part or part.startswith("."):        # 빈 조각, ., .., 숨김
             return False
+        if part[-1] in ". " or "~" in part:         # Windows가 끝의 점·공백을 지우거나 8.3 짧은 이름으로 바꿔 검사를 피하는 길
+            return False
     if any(d.lower() == "scripts" for d in parts[:-1]):
         return False
     if len(parts) == 1 and parts[0].lower() == "skill.md":      # 본문은 use_skill로 읽는다
@@ -142,7 +144,8 @@ def list_files(skill_dir):
                          if not d.startswith(".") and d.lower() != "scripts"
                          and not _is_link(os.path.join(root, d)) and len(base) < MAX_REF_DEPTH)
         for n in sorted(names):
-            if _ref_parts_ok(base + [n]) and not _is_link(os.path.join(root, n))                     and os.path.isfile(os.path.join(root, n)):
+            full = os.path.join(root, n)
+            if _ref_parts_ok(base + [n]) and not _is_link(full) and os.path.isfile(full):
                 found.append("/".join(base + [n]))
                 if len(found) >= MAX_REF_FILES:
                     return sorted(found)
@@ -170,6 +173,8 @@ def read_file(name, rel_path):
         root = os.path.normcase(os.path.realpath(base))
         target = os.path.normcase(os.path.realpath(walk))
         if os.path.commonpath([root, target]) != root or not os.path.isfile(target):
+            return denied
+        if not _ref_parts_ok(os.path.relpath(target, root).split(os.sep)):     # 실제 이름으로 한 번 더 검사
             return denied
         with open(target, "r", encoding="utf-8-sig") as f:
             text = f.read(MAX_READ_CHARS + 1)
