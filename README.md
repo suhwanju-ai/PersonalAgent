@@ -78,6 +78,7 @@ lab/mcp_client.py           MCP 클라이언트 — stdio 와 Streamable HTTP
 lab/skills.py               skills/<이름>/SKILL.md를 읽어 use_skill 도구로 제공
 lab/html_render.py          마크다운·JSON을 디자인된 HTML 문서로 변환(render_html 도구)
 skills/                     스킬 폴더. 기본 제공: html
+tests/test_skills.py        스킬 테스트 — py -W error -m unittest tests.test_skills -v
 lab/runner.py               도구를 쓰는 대화 루프. 결정은 LLM, 실행은 이 파일
 lab/roles.py                세 역할의 지시문과 도구 배분
 lab/orchestrator.py         자식 프로세스 기동·종료, delegate_* 도구, 위임 로그, 후속 질의 세션
@@ -140,6 +141,8 @@ static/                     index.html · app.js · style.css
 
 - 모델에게는 `use_skill` 도구 하나로 보이고, 도구 설명에 스킬 이름과 설명만 실립니다. 모델이 필요하다고 판단하면 `use_skill(이름)`으로 본문 지침을 읽습니다.
 - 기본 제공 `html` 스킬은 `render_html` 도구로 마크다운 본문을 디자인된 HTML 문서로 바꿉니다. 결과는 답변에 미리보기와 [다운로드] 버튼으로 나오고, 파일은 `state/outputs/`에 최근 50개까지 남습니다. 디자인은 `ledger`(남색·금색)와 `dossier`(녹색·주황) 두 가지입니다.
+- 스킬 폴더 안의 참고 파일(`references/a.md` 등 `.md .txt .json .csv .yaml .yml`)은 `use_skill` 결과에 목록으로 나오고, 모델이 `read_skill_file`로 필요한 것만 읽습니다.
+- 스킬 카드의 **가져오기**에서 내 PC의 `~/.claude/skills`에 있는 Claude Code 스킬을 골라 가져올 수 있습니다(다른 폴더는 `.env`에 `SKILLS_IMPORT_DIR`로 지정). SKILL.md와 참고 파일만 복사하고(파일 40개·파일당 60KB·합계 300KB까지), 스크립트는 복사하지 않습니다. SKILL.md 글을 붙여 넣어 채울 수도 있습니다.
 - 스킬은 **코드를 실행하지 않습니다.** 지침 글과 `lab/skills.py`의 `SKILL_TOOLS`에 있는 내장 도구만 쓸 수 있고, 폴더에 파이썬 파일을 넣어도 읽지 않습니다. `tools:`에 적은 이름이 `SKILL_TOOLS`에 없으면 무시합니다.
 - 도구 탭과 에이전트 탭의 연구책임자가 스킬을 씁니다. 자료조사·실험수행 연구원에게는 주지 않습니다.
 
