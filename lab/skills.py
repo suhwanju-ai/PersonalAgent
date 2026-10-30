@@ -14,6 +14,7 @@ SKILL.md는 Claude Code 형식과 같다. 맨 위 --- 사이에 name, descriptio
 import json
 import os
 import re
+import shutil
 
 from . import config, html_render
 
@@ -354,6 +355,187 @@ def remove(name):
                 pass
             return True
     return False
+
+
+# ── ~/.claude/skills 가져오기 ─────────────────────────────────────────────
+# 화면은 폴더 이름만 보낸다. 서버는 그 이름을 원본 폴더 목록(importable)에서 찾을 때만 쓰고 경로로는 쓰지 않는다.
+# 복사는 skills/.import-<이름> 임시 폴더에서 끝낸 뒤 바꿔 넣어서, 중간에 실패해도 기존 스킬이 그대로 남는다.
+
+IMPORT_LABEL = "~/.claude/skills"
+MAX_IMPORT_FILE_BYTES = 1000000     # 참고 파일 하나의 크기 한도(모델은 앞 2만 자만 읽는다)
+MAX_IMPORT_SCAN = 2000              # 원본 폴더에서 훑어 볼 파일 수(node_modules 같은 큰 폴더 대비)
+MAX_SKIPPED_SHOWN = 20
+_CLAUDE_ONLY = re.compile(r"\bbun\b|Artifact|localhost:31337|~/\.claude|Voice Notification|\bTools/\w+\.ts", re.I)
+
+
+def import_source_dir():
+    """가져올 폴더. SKILLS_IMPORT_DIR이 있으면 그것, 없으면 ~/.claude/skills. 부를 때마다 읽는다."""
+    return os.environ.get("SKILLS_IMPORT_DIR") or os.path.join(os.path.expanduser("~"), ".claude", "skills")
+
+
+def _plan_import(skill_dir):
+    """원본 스킬 폴더에서 복사할 파일(상대 경로 목록)과 건너뛸 파일(안내 문구 목록)을 가른다. 링크는 따라가지 않는다."""
+    take, skipped, seen = [], [], 0
+    root_real = os.path.normcase(os.path.realpath(skill_dir))
+    for root, dirs, names in os.walk(skill_dir):
+        rel = os.path.relpath(root, skill_dir)
+        base = [] if rel == "." else rel.split(os.sep)
+        keep = []
+        for d in sorted(dirs):
+            if _is_link(os.path.join(root, d)):
+                skipped.append("/".join(base + [d]) + " (링크)")
+            else:
+                keep.append(d)
+        dirs[:] = keep
+        for n in sorted(names):
+            parts = base + [n]
+            shown = "/".join(parts)
+            full = os.path.join(root, n)
+            if parts == ["SKILL.md"]:
+                continue
+            seen += 1
+            if seen > MAX_IMPORT_SCAN:
+                skipped.append(shown + " (너무 많음)")
+                continue
+            try:
+                inside = os.path.commonpath([root_real, os.path.normcase(os.path.realpath(full))]) == root_real
+                size = os.path.getsize(full)
+            except (OSError, ValueError):
+                skipped.append(shown)
+                continue
+            if _is_link(full) or not inside:
+                skipped.append(shown + " (링크)")
+            elif not _ref_parts_ok(parts):
+                skipped.append(shown)
+            elif size > MAX_IMPORT_FILE_BYTES:
+                skipped.append(shown + " (너무 큼)")
+            elif len(take) >= MAX_REF_FILES:
+                skipped.append(shown + " (너무 많음)")
+            else:
+                take.append(shown)
+    return take, skipped
+
+
+def _shown(skipped):
+    if len(skipped) <= MAX_SKIPPED_SHOWN:
+        return skipped
+    return skipped[:MAX_SKIPPED_SHOWN] + ["… 외 %d개" % (len(skipped) - MAX_SKIPPED_SHOWN)]
+
+
+def importable():
+    """가져올 수 있는 스킬 폴더 목록. SKILL.md가 없는 폴더는 싣지 않는다."""
+    out = {"dir": IMPORT_LABEL, "items": []}
+    src = import_source_dir()
+    try:
+        folders = sorted(os.listdir(src))
+    except OSError:
+        return out
+    have = {s["name"] for s in load_all()}
+    for folder in folders:
+        if folder.startswith("."):
+            continue
+        path = os.path.join(src, folder)
+        md = os.path.join(path, "SKILL.md")
+        if not os.path.isdir(path) or not os.path.isfile(md):
+            continue
+        item = {"folder": folder, "name": "", "description": "", "files": 0, "skipped": [],
+                "exists": False, "ok": False, "reason": ""}
+        out["items"].append(item)
+        if _is_link(path) or _is_link(md):
+            item["reason"] = "링크로 연결된 폴더는 가져올 수 없습니다."
+            continue
+        try:
+            if os.path.getsize(md) > MAX_BYTES:
+                item["reason"] = "SKILL.md가 너무 큽니다(%dKB 초과)." % (MAX_BYTES // 1000)
+                continue
+            with open(md, "r", encoding="utf-8-sig") as f:
+                parsed = parse_text(f.read(), folder)
+        except (OSError, UnicodeDecodeError):
+            item["reason"] = "SKILL.md를 글로 읽을 수 없습니다."
+            continue
+        if parsed is None:
+            item["reason"] = "이름이 규칙에 맞지 않습니다. 영문 소문자·숫자·-·_만 쓸 수 있고 40자까지입니다."
+            continue
+        take, skipped = _plan_import(path)
+        item.update(name=parsed["name"], description=parsed["description"], files=len(take),
+                    skipped=_shown(skipped), exists=parsed["name"] in have, ok=True)
+    return out
+
+
+def import_skill(folder, overwrite=False):
+    """importable()에 있는 폴더 하나를 skills/로 복사한다. 문제가 있으면 ValueError."""
+    item = next((i for i in importable()["items"] if isinstance(folder, str) and i["folder"] == folder), None)
+    if item is None:
+        raise ValueError("가져올 수 있는 스킬 폴더 목록에 없는 이름입니다.")
+    if not item["ok"]:
+        raise ValueError(item["reason"])
+    name = item["name"]
+    existing = {s["name"]: s for s in load_all()}
+    if name in existing and not overwrite:
+        raise ValueError("같은 이름의 스킬이 이미 있습니다. 덮어쓰려면 확인해 주세요.")
+    if name not in existing and len(existing) >= MAX_SKILLS:
+        raise ValueError("스킬은 %d개까지 둘 수 있습니다." % MAX_SKILLS)
+    target = os.path.join(SKILLS_DIR, existing[name]["folder"] if name in existing else name)
+    src = os.path.join(import_source_dir(), folder)
+    take, skipped = _plan_import(src)
+    stage = os.path.join(SKILLS_DIR, ".import-" + name)
+    backup = os.path.join(SKILLS_DIR, ".import-old-" + name)
+    try:
+        os.makedirs(SKILLS_DIR, exist_ok=True)
+        for leftover in (stage, backup):
+            shutil.rmtree(leftover, ignore_errors=True)
+        if os.path.getsize(os.path.join(src, "SKILL.md")) > MAX_BYTES:
+            raise ValueError("SKILL.md가 너무 큽니다(%dKB 초과)." % (MAX_BYTES // 1000))
+        os.makedirs(stage)
+        for rel in ["SKILL.md"] + take:
+            dst = os.path.join(stage, *rel.split("/"))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(src, *rel.split("/")), dst)
+        if os.path.exists(target):
+            os.replace(target, backup)
+            try:
+                os.replace(stage, target)
+            except OSError:
+                os.replace(backup, target)
+                raise
+        else:
+            os.replace(stage, target)
+    except ValueError:
+        raise
+    except OSError:
+        raise ValueError("스킬을 복사하지 못했습니다. 폴더 권한이나 디스크를 확인해 주세요.") from None
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(backup, ignore_errors=True)
+    return {"name": name, "copied": len(take), "skipped": _shown(skipped)}
+
+
+# ── 화면에 붙여 넣은 SKILL.md 읽기 ─────────────────────────────────────────
+
+def parse_form(text):
+    """붙여 넣은 SKILL.md를 편집 칸에 채울 값으로. 이름이 규칙에 안 맞으면 -로 정리하고, 손댄 곳은 notes에 적는다."""
+    if not isinstance(text, str):
+        raise ValueError("붙여 넣은 내용이 글이 아닙니다.")
+    if len(text.encode("utf-8")) > MAX_BYTES:
+        raise ValueError("내용이 너무 큽니다(%dKB 초과)." % (MAX_BYTES // 1000))
+    meta, body = _frontmatter(text.replace("\r\n", "\n").strip())
+    desc = " ".join((meta.get("description", "") + " " + meta.get("when_to_use", "")).split())
+    wanted = []
+    for t in _tool_names(meta.get("tools", "") + " " + meta.get("allowed-tools", "")):
+        if t not in wanted:
+            wanted.append(t)
+    unsupported = [t for t in wanted if t not in SKILL_TOOLS]
+    body = body.strip()
+    notes = []
+    if len(desc) > MAX_DESCRIPTION:
+        notes.append("설명이 %d자라 %d자로 줄였습니다. 언제 쓰는지가 남도록 다듬어 주세요." % (len(desc), MAX_DESCRIPTION))
+    if unsupported:
+        notes.append("이 앱에서 쓸 수 없는 도구는 뺐습니다: %s" % ", ".join(unsupported)[:80])
+    if _CLAUDE_ONLY.search(body):
+        notes.append("지침에 Claude Code 전용 내용(bun, Artifact, 음성 알림 등)이 있습니다. 이 앱에는 없으니 지우거나 바꿔 주세요.")
+    name = re.sub(r"[^a-z0-9_-]+", "-", (meta.get("name") or "").lower()).strip("-_")[:40]
+    return {"name": name, "description": desc[:MAX_DESCRIPTION], "tools": [t for t in wanted if t in SKILL_TOOLS],
+            "body": body, "notes": notes}
 
 
 # ── 모델에게 줄 도구 ──────────────────────────────────────────────────

@@ -216,5 +216,209 @@ class ReferenceFileTests(SkillsTestCase):
         self.assertNotIn("참고 파일", skills.entries()[0]["call"]({"name": "plain"}))
 
 
+class ImportTests(SkillsTestCase):
+    def setUp(self):
+        super().setUp()
+        self.src = tempfile.mkdtemp()
+        self._orig_env = os.environ.get("SKILLS_IMPORT_DIR")
+        os.environ["SKILLS_IMPORT_DIR"] = self.src
+
+    def tearDown(self):
+        if self._orig_env is None:
+            os.environ.pop("SKILLS_IMPORT_DIR", None)
+        else:
+            os.environ["SKILLS_IMPORT_DIR"] = self._orig_env
+        shutil.rmtree(self.src, ignore_errors=True)
+        super().tearDown()
+
+    def make_src(self, folder, text=None, files=None):
+        base = os.path.join(self.src, folder)
+        os.makedirs(base, exist_ok=True)
+        text = text if text is not None else "---\nname: %s\ndescription: d\n---\n본문" % folder
+        with open(os.path.join(base, "SKILL.md"), "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        for rel, content in (files or {}).items():
+            path = os.path.join(base, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(content)
+        return base
+
+    def tree(self, base):
+        out = []
+        for root, _d, names in os.walk(base):
+            for n in names:
+                out.append(os.path.relpath(os.path.join(root, n), base).replace(os.sep, "/"))
+        return sorted(out)
+
+    def test_import_source_dir_reads_env_each_call(self):
+        self.assertEqual(skills.import_source_dir(), self.src)
+        os.environ.pop("SKILLS_IMPORT_DIR")
+        self.assertEqual(skills.import_source_dir(),
+                         os.path.join(os.path.expanduser("~"), ".claude", "skills"))
+
+    def test_importable_lists_ok_and_bad(self):
+        self.make_src("good", files={"references/g.md": "G", "scripts/r.py": "print(1)"})
+        self.make_src("bad", "---\nname: ns:bad\n---\n본문")
+        os.makedirs(os.path.join(self.src, "nomd"))
+        r = skills.importable()
+        self.assertEqual(r["dir"], "~/.claude/skills")
+        by = {i["folder"]: i for i in r["items"]}
+        self.assertEqual(sorted(by), ["bad", "good"])
+        good = by["good"]
+        self.assertIs(good["ok"], True)
+        self.assertEqual(good["files"], 1)
+        self.assertEqual(good["skipped"], ["scripts/r.py"])
+        self.assertEqual(good["name"], "good")
+        self.assertIs(good["exists"], False)
+        self.assertIs(by["bad"]["ok"], False)
+        self.assertTrue(by["bad"]["reason"])
+        self.assertNotIn(self.src, by["bad"]["reason"])
+
+    def test_importable_marks_existing(self):
+        self.make_src("good")
+        self.write_skill("good", "---\nname: good\ndescription: d\n---\n본문")
+        self.assertIs(skills.importable()["items"][0]["exists"], True)
+
+    def test_missing_source_dir_returns_empty(self):
+        os.environ["SKILLS_IMPORT_DIR"] = os.path.join(self.src, "없는폴더")
+        self.assertEqual(skills.importable()["items"], [])
+
+    def test_import_copies_text_files_only(self):
+        self.make_src("good", files={"references/g.md": "G", "scripts/r.py": "x", "a.exe": "x"})
+        r = skills.import_skill("good")
+        self.assertEqual(r["name"], "good")
+        self.assertEqual(r["copied"], 1)
+        self.assertIn("scripts/r.py", r["skipped"])
+        base = os.path.join(self.tmp, "good")
+        self.assertEqual(self.tree(base), ["SKILL.md", "references/g.md"])
+        self.assertEqual([s["name"] for s in skills.load_all()], ["good"])
+
+    def test_import_unknown_folder_rejected(self):
+        self.make_src("good")
+        outside = os.path.dirname(self.src)
+        for bad in ("../x", "..", "nope", os.path.join(self.src, "good"), outside, "good/..", "", None, 5):
+            with self.assertRaises(ValueError, msg=repr(bad)) as cm:
+                skills.import_skill(bad)
+            self.assertNotIn(self.src, str(cm.exception))
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_import_bad_name_rejected(self):
+        self.make_src("bad", "---\nname: ns:bad\n---\n본문")
+        with self.assertRaises(ValueError):
+            skills.import_skill("bad")
+
+    def test_import_existing_requires_overwrite(self):
+        self.make_src("good")
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛")
+        with self.assertRaises(ValueError):
+            skills.import_skill("good")
+        with open(os.path.join(self.tmp, "good", "SKILL.md"), encoding="utf-8") as f:
+            self.assertIn("옛", f.read())
+
+    def test_import_overwrite_replaces(self):
+        self.make_src("good", files={"references/new.md": "N"})
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛", {"references/old.md": "O"})
+        skills.import_skill("good", overwrite=True)
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/new.md"])
+        self.assertEqual(os.listdir(self.tmp), ["good"])
+
+    def test_import_failure_keeps_existing(self):
+        self.make_src("good", "---\nname: good\ndescription: d\n---\n" + "가" * (skills.MAX_BYTES // 3 + 10))
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛", {"references/old.md": "O"})
+        with self.assertRaises(ValueError):
+            skills.import_skill("good", overwrite=True)
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/old.md"])
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
+
+    def test_import_failure_midway_cleans_staging(self):
+        self.make_src("good", files={"references/g.md": "G"})
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛", {"references/old.md": "O"})
+        real = skills.shutil.copyfile
+        calls = []
+
+        def boom(src, dst, *a, **k):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError("디스크 오류")
+            return real(src, dst, *a, **k)
+        skills.shutil.copyfile = boom
+        try:
+            with self.assertRaises(ValueError):
+                skills.import_skill("good", overwrite=True)
+        finally:
+            skills.shutil.copyfile = real
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/old.md"])
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
+
+    def test_import_respects_limits(self):
+        n = skills.MAX_REF_FILES + 1
+        self.make_src("many", files={"references/f%03d.md" % i: "x" for i in range(n)})
+        r = skills.import_skill("many")
+        self.assertEqual(r["copied"], skills.MAX_REF_FILES)
+        self.assertEqual(len(r["skipped"]), 1)
+        self.assertIn("너무 많음", r["skipped"][0])
+        self.assertEqual(len(skills.list_files(os.path.join(self.tmp, "many"))), skills.MAX_REF_FILES)
+
+    def test_import_skips_links(self):
+        outside = os.path.join(self.src, "outside.md")
+        with open(outside, "w", encoding="utf-8") as f:
+            f.write("비밀")
+        base = self.make_src("lnk", files={"references/ok.md": "O"})
+        try:
+            os.symlink(outside, os.path.join(base, "references", "link.md"))
+            os.symlink(self.src, os.path.join(base, "dirlink"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("링크를 만들 수 없는 환경")
+        r = skills.import_skill("lnk")
+        self.assertEqual(self.tree(os.path.join(self.tmp, "lnk")), ["SKILL.md", "references/ok.md"])
+        self.assertEqual(r["copied"], 1)
+        self.assertTrue(any("link.md" in s for s in r["skipped"]))
+
+    def test_import_max_skills(self):
+        for i in range(skills.MAX_SKILLS):
+            self.write_skill("s%02d" % i, "---\nname: s%02d\ndescription: d\n---\n본문" % i)
+        self.make_src("extra")
+        with self.assertRaises(ValueError):
+            skills.import_skill("extra")
+        self.make_src("s00")            # 이미 있는 이름을 덮어쓰는 건 개수가 늘지 않으므로 된다
+        skills.import_skill("s00", overwrite=True)
+
+    def test_import_uses_normalized_name_for_folder(self):
+        self.make_src("Weird_Folder", "---\nname: HTML-Report\ndescription: d\n---\n본문")
+        r = skills.import_skill("Weird_Folder")
+        self.assertEqual(r["name"], "html-report")
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "html-report", "SKILL.md")))
+
+
+class ParseRouteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import app
+        cls.app = app
+
+    def test_parse_folds_and_normalizes_name(self):
+        r = self.app._skill_parse({"text": "---\nname: A_B\ndescription: >\n  x\n  y\n---\nbody"})
+        self.assertIs(r["ok"], True)
+        self.assertEqual(r["skill"]["description"], "x y")
+        self.assertEqual(r["skill"]["name"], "a_b")
+        self.assertEqual(r["skill"]["body"], "body")
+
+    def test_parse_cleans_bad_name(self):
+        r = self.app._skill_parse({"text": "---\nname: ns:My Skill\n---\nbody"})
+        self.assertEqual(r["skill"]["name"], "ns-my-skill")
+
+    def test_parse_notes(self):
+        text = "---\nname: a\ndescription: %s\nallowed-tools: Bash, render_html\n---\nbun run x" % ("가" * 600)
+        sk = self.app._skill_parse({"text": text})["skill"]
+        self.assertEqual(len(sk["description"]), 500)
+        self.assertEqual(sk["tools"], ["render_html"])
+        self.assertEqual(len(sk["notes"]), 3)
+
+    def test_parse_rejects_non_string(self):
+        for bad in (None, 5, ["a"], {}):
+            self.assertIs(self.app._skill_parse({"text": bad})["ok"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

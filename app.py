@@ -457,6 +457,34 @@ def _skill_delete(p):
     return {"ok": True, "skills": skills.view()}
 
 
+@route("/api/skills/parse")
+def _skill_parse(p):
+    """화면에 붙여 넣은 SKILL.md를 편집 칸에 채울 값으로 바꾼다. 저장은 하지 않는다."""
+    try:
+        return {"ok": True, "skill": skills.parse_form(p.get("text"))}
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+@route("/api/skills/importable")
+def _skill_importable(_p):
+    """~/.claude/skills에서 가져올 수 있는 스킬 목록."""
+    return {"ok": True, **skills.importable()}
+
+
+@route("/api/skills/import")
+def _skill_import(p):
+    """목록에 있는 폴더 이름 하나를 가져온다. 이름은 목록에서 찾을 때만 쓰고 경로로 쓰지 않는다."""
+    folder = p.get("folder")
+    if not isinstance(folder, str):
+        return {"ok": False, "message": "가져올 폴더를 고르지 않았습니다."}
+    try:
+        r = skills.import_skill(folder, overwrite=p.get("overwrite") is True)
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, **r, "skills": skills.view()}
+
+
 @route("/api/mcp/remove")
 def _mcp_remove(p):
     """직접 추가한 서버만 지운다. 기본 목록의 서버는 연결을 끊을 수만 있다."""
