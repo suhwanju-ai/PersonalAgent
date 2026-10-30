@@ -362,7 +362,9 @@ def remove(name):
 # 복사는 skills/.import-<이름> 임시 폴더에서 끝낸 뒤 바꿔 넣어서, 중간에 실패해도 기존 스킬이 그대로 남는다.
 
 IMPORT_LABEL = "~/.claude/skills"
-MAX_IMPORT_FILE_BYTES = 1000000     # 참고 파일 하나의 크기 한도(모델은 앞 2만 자만 읽는다)
+MAX_IMPORT_FILES = 40               # 가져올 때 스킬 하나가 가져가는 참고 파일 수
+MAX_IMPORT_FILE_BYTES = 60000       # 참고 파일 하나의 크기 한도
+MAX_IMPORT_TOTAL = 300000           # 참고 파일 합계 크기 한도(SKILL.md는 MAX_BYTES로 따로 센다)
 MAX_IMPORT_SCAN = 2000              # 원본 폴더에서 훑어 볼 파일 수(node_modules 같은 큰 폴더 대비)
 MAX_SKIPPED_SHOWN = 20
 _CLAUDE_ONLY = re.compile(r"\bbun\b|Artifact|localhost:31337|~/\.claude|Voice Notification|\bTools/\w+\.ts", re.I)
@@ -375,7 +377,7 @@ def import_source_dir():
 
 def _plan_import(skill_dir):
     """원본 스킬 폴더에서 복사할 파일(상대 경로 목록)과 건너뛸 파일(안내 문구 목록)을 가른다. 링크는 따라가지 않는다."""
-    take, skipped, seen = [], [], 0
+    take, skipped, seen, total = [], [], 0, 0
     root_real = os.path.normcase(os.path.realpath(skill_dir))
     for root, dirs, names in os.walk(skill_dir):
         rel = os.path.relpath(root, skill_dir)
@@ -384,6 +386,8 @@ def _plan_import(skill_dir):
         for d in sorted(dirs):
             if _is_link(os.path.join(root, d)):
                 skipped.append("/".join(base + [d]) + " (링크)")
+            elif d.startswith(".") or d.lower() == "node_modules":      # 숨김·의존성 폴더는 안을 보지 않고 한 줄로만 알린다
+                skipped.append("/".join(base + [d]) + "/ (폴더 전체 건너뜀)")
             else:
                 keep.append(d)
         dirs[:] = keep
@@ -409,10 +413,13 @@ def _plan_import(skill_dir):
                 skipped.append(shown)
             elif size > MAX_IMPORT_FILE_BYTES:
                 skipped.append(shown + " (너무 큼)")
-            elif len(take) >= MAX_REF_FILES:
+            elif len(take) >= MAX_IMPORT_FILES:
                 skipped.append(shown + " (너무 많음)")
+            elif total + size > MAX_IMPORT_TOTAL:
+                skipped.append(shown + " (합계 초과)")
             else:
                 take.append(shown)
+                total += size
     return take, skipped
 
 
@@ -462,8 +469,31 @@ def importable():
     return out
 
 
+def _recover_backups():
+    """이전 가져오기가 교체 도중 끊겨 skills/.import-old-<폴더>만 남았으면 원래 자리로 되돌린다.
+
+    원래 폴더가 이미 있으면 새 스킬이 자리 잡은 뒤 지우지 못한 옛 사본이므로 지운다.
+    """
+    try:
+        names = os.listdir(SKILLS_DIR)
+    except OSError:
+        return
+    for n in names:
+        if not n.startswith(".import-old-") or len(n) == len(".import-old-"):
+            continue
+        old, home = os.path.join(SKILLS_DIR, n), os.path.join(SKILLS_DIR, n[len(".import-old-"):])
+        try:
+            if os.path.lexists(home):
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                os.replace(old, home)
+        except OSError:
+            pass
+
+
 def import_skill(folder, overwrite=False):
     """importable()에 있는 폴더 하나를 skills/로 복사한다. 문제가 있으면 ValueError."""
+    _recover_backups()
     item = next((i for i in importable()["items"] if isinstance(folder, str) and i["folder"] == folder), None)
     if item is None:
         raise ValueError("가져올 수 있는 스킬 폴더 목록에 없는 이름입니다.")
@@ -475,15 +505,19 @@ def import_skill(folder, overwrite=False):
         raise ValueError("같은 이름의 스킬이 이미 있습니다. 덮어쓰려면 확인해 주세요.")
     if name not in existing and len(existing) >= MAX_SKILLS:
         raise ValueError("스킬은 %d개까지 둘 수 있습니다." % MAX_SKILLS)
-    target = os.path.join(SKILLS_DIR, existing[name]["folder"] if name in existing else name)
+    target_folder = existing[name]["folder"] if name in existing else name
+    target = os.path.join(SKILLS_DIR, target_folder)
+    if name not in existing and os.path.lexists(target):
+        # 폴더 이름만 같고 다른 스킬이거나 읽지 못하는 초안일 수 있다. 같은 이름의 스킬이 확인된 폴더만 바꾼다.
+        raise ValueError("같은 이름의 폴더가 이미 있지만 같은 스킬로 확인되지 않아 건드리지 않았습니다. 그 폴더를 먼저 정리해 주세요.")
     src = os.path.join(import_source_dir(), folder)
     take, skipped = _plan_import(src)
     stage = os.path.join(SKILLS_DIR, ".import-" + name)
-    backup = os.path.join(SKILLS_DIR, ".import-old-" + name)
+    backup = os.path.join(SKILLS_DIR, ".import-old-" + target_folder)
+    moved = kept = False
     try:
         os.makedirs(SKILLS_DIR, exist_ok=True)
-        for leftover in (stage, backup):
-            shutil.rmtree(leftover, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)
         if os.path.getsize(os.path.join(src, "SKILL.md")) > MAX_BYTES:
             raise ValueError("SKILL.md가 너무 큽니다(%dKB 초과)." % (MAX_BYTES // 1000))
         os.makedirs(stage)
@@ -493,20 +527,24 @@ def import_skill(folder, overwrite=False):
             shutil.copyfile(os.path.join(src, *rel.split("/")), dst)
         if os.path.exists(target):
             os.replace(target, backup)
-            try:
-                os.replace(stage, target)
-            except OSError:
-                os.replace(backup, target)
-                raise
-        else:
-            os.replace(stage, target)
+            moved = True
+        os.replace(stage, target)
+        moved = False
+        shutil.rmtree(backup, ignore_errors=True)       # 새 폴더가 자리 잡은 뒤에만 옛 사본을 지운다
     except ValueError:
         raise
     except OSError:
+        if moved:
+            try:
+                os.replace(backup, target)
+            except OSError:
+                kept = True                             # 되돌리지 못하면 옛 사본을 지우지 않고 남긴다
+        if kept:
+            raise ValueError("스킬을 바꾸지 못했습니다. 기존 스킬은 skills 폴더 안 숨김 폴더(.import-old-%s)에 보관했습니다. "
+                             "다시 가져오기를 시도하면 자동으로 복구합니다." % target_folder) from None
         raise ValueError("스킬을 복사하지 못했습니다. 폴더 권한이나 디스크를 확인해 주세요.") from None
     finally:
         shutil.rmtree(stage, ignore_errors=True)
-        shutil.rmtree(backup, ignore_errors=True)
     return {"name": name, "copied": len(take), "skipped": _shown(skipped)}
 
 

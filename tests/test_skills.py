@@ -352,13 +352,97 @@ class ImportTests(SkillsTestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
 
     def test_import_respects_limits(self):
-        n = skills.MAX_REF_FILES + 1
-        self.make_src("many", files={"references/f%03d.md" % i: "x" for i in range(n)})
+        self.assertEqual((skills.MAX_IMPORT_FILES, skills.MAX_IMPORT_FILE_BYTES, skills.MAX_IMPORT_TOTAL),
+                         (40, 60000, 300000))
+        self.make_src("many", files={"references/f%03d.md" % i: "x" for i in range(41)})
         r = skills.import_skill("many")
-        self.assertEqual(r["copied"], skills.MAX_REF_FILES)
+        self.assertEqual(r["copied"], 40)
         self.assertEqual(len(r["skipped"]), 1)
         self.assertIn("너무 많음", r["skipped"][0])
-        self.assertEqual(len(skills.list_files(os.path.join(self.tmp, "many"))), skills.MAX_REF_FILES)
+        self.assertEqual(len(skills.list_files(os.path.join(self.tmp, "many"))), 40)
+
+    def test_import_skips_big_file(self):
+        self.make_src("big", files={"references/ok.md": "x", "references/big.md": "x" * 60001})
+        r = skills.import_skill("big")
+        self.assertEqual(r["copied"], 1)
+        self.assertEqual(r["skipped"], ["references/big.md (너무 큼)"])
+
+    def test_import_total_cap(self):
+        files = {"references/f%d.md" % i: "x" * 60000 for i in range(7)}      # 합계 42만
+        self.make_src("tot", files=files)
+        r = skills.import_skill("tot")
+        self.assertEqual(r["copied"], 5)
+        self.assertEqual(len(r["skipped"]), 2)
+        self.assertTrue(all("합계 초과" in s for s in r["skipped"]))
+
+    def test_import_prunes_hidden_and_node_modules(self):
+        self.make_src("p", files={".git/a.md": "x", "node_modules/b.md": "x", "references/ok.md": "x"})
+        r = skills.import_skill("p")
+        self.assertEqual(r["copied"], 1)
+        self.assertEqual(sorted(r["skipped"]), [".git/ (폴더 전체 건너뜀)", "node_modules/ (폴더 전체 건너뜀)"])
+
+    def test_import_refuses_taken_folder_without_destroying(self):
+        self.make_src("good")
+        self.write_skill("good", "---\nname: other\ndescription: d\n---\n옛", {"notes.md": "N"})
+        self.write_skill("draft", "---\nname: ns:bad\n---\n초안")
+        for src_name, dirname in (("good", "good"),):
+            with self.assertRaises(ValueError):
+                skills.import_skill(src_name, overwrite=True)
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "notes.md"])
+        self.make_src("draft", "---\nname: draft\ndescription: d\n---\n새")
+        with self.assertRaises(ValueError):
+            skills.import_skill("draft", overwrite=True)
+        with open(os.path.join(self.tmp, "draft", "SKILL.md"), encoding="utf-8") as f:
+            self.assertIn("초안", f.read())
+
+    def _flaky_replace(self, fail_calls):
+        real = skills.os.replace
+        calls = []
+
+        def flaky(a, b, *args, **kw):
+            calls.append((a, b))
+            if len(calls) in fail_calls:
+                raise OSError("잠김")
+            return real(a, b, *args, **kw)
+        skills.os.replace = flaky
+        return real
+
+    def test_swap_failure_restores_old(self):
+        self.make_src("good", files={"references/new.md": "N"})
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛", {"references/old.md": "O"})
+        real = self._flaky_replace({2})                 # 1: 옛 폴더 치우기, 2: 새 폴더 넣기
+        try:
+            with self.assertRaises(ValueError):
+                skills.import_skill("good", overwrite=True)
+        finally:
+            skills.os.replace = real
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/old.md"])
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
+
+    def test_swap_and_restore_failure_keeps_backup_and_recovers(self):
+        self.make_src("good", files={"references/new.md": "N"})
+        self.write_skill("good", "---\nname: good\ndescription: old\n---\n옛", {"references/old.md": "O"})
+        real = self._flaky_replace({2, 3})              # 3: 되돌리기
+        try:
+            with self.assertRaises(ValueError) as cm:
+                skills.import_skill("good", overwrite=True)
+        finally:
+            skills.os.replace = real
+        self.assertIn("보관", str(cm.exception))
+        self.assertNotIn(self.tmp, str(cm.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "good")))
+        self.assertEqual(self.tree(os.path.join(self.tmp, ".import-old-good")), ["SKILL.md", "references/old.md"])
+        with self.assertRaises(ValueError):             # 다음 호출이 먼저 복구하므로 이제 '이미 있음'으로 거부된다
+            skills.import_skill("good")
+        self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/old.md"])
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
+
+    def test_stale_backup_with_home_present_is_removed(self):
+        self.write_skill("good", "---\nname: good\ndescription: d\n---\n새")
+        self.write_skill(".import-old-good", "---\nname: good\n---\n찌꺼기")
+        self.make_src("other")
+        skills.import_skill("other")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".import-old-good")))
 
     def test_import_skips_links(self):
         outside = os.path.join(self.src, "outside.md")
