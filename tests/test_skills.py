@@ -216,6 +216,29 @@ class ReferenceFileTests(SkillsTestCase):
         self.assertNotIn("참고 파일", skills.entries()[0]["call"]({"name": "plain"}))
 
 
+class SaveKeepsHiddenTests(SkillsTestCase):
+    def test_get_returns_model_invocable(self):
+        self.write_skill("h", "---\nname: h\ndescription: d\ndisable-model-invocation: true\n---\n본문")
+        self.write_skill("v", "---\nname: v\ndescription: d\n---\n본문")
+        self.assertIs(skills.get("h")["model_invocable"], False)
+        self.assertIs(skills.get("v")["model_invocable"], True)
+
+    def test_save_over_hidden_skill_keeps_it_hidden(self):
+        self.write_skill("h", "---\nname: h\ndescription: d\ndisable-model-invocation: true\n---\n본문")
+        skills.save("h", "새 설명", ["render_html"], "새 본문")
+        self.assertIs(skills.get("h")["model_invocable"], False)
+        self.assertEqual(skills.entries(), [])
+        self.assertEqual(skills.get("h")["tools"], ["render_html"])
+
+    def test_save_normal_skill_unaffected(self):
+        self.write_skill("v", "---\nname: v\ndescription: d\n---\n본문")
+        skills.save("v", "새 설명", [], "새 본문")
+        self.assertIs(skills.get("v")["model_invocable"], True)
+        self.assertEqual([e["name"] for e in skills.entries()], ["use_skill"])
+        skills.save("fresh", "d", [], "b")
+        self.assertIs(skills.get("fresh")["model_invocable"], True)
+
+
 class ImportTests(SkillsTestCase):
     def setUp(self):
         super().setUp()
@@ -436,6 +459,15 @@ class ImportTests(SkillsTestCase):
             skills.import_skill("good")
         self.assertEqual(self.tree(os.path.join(self.tmp, "good")), ["SKILL.md", "references/old.md"])
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-")], [])
+
+    def test_staging_does_not_collide_with_backup(self):
+        self.write_skill(".import-old-good", "---\nname: good\n---\n보관된 옛 사본")
+        self.make_src("old-good")
+        skills.import_skill("old-good")
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "old-good", "SKILL.md")))
+        # 홈 폴더 good이 없으면 복구 로직이 돌려놓는다. 지워지지 않고 살아남았는지가 핵심이다.
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "good", "SKILL.md")))
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".import-new-")], [])
 
     def test_stale_backup_with_home_present_is_removed(self):
         self.write_skill("good", "---\nname: good\ndescription: d\n---\n새")

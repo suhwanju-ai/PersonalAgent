@@ -304,7 +304,8 @@ def get(name):
     """스킬 하나의 본문까지 포함한 내용. 없으면 None."""
     for s in load_all():
         if s["name"] == name:
-            return {"name": s["name"], "description": s["description"], "tools": s["tools"], "body": s["body"]}
+            return {"name": s["name"], "description": s["description"], "tools": s["tools"], "body": s["body"],
+                    "model_invocable": s["model_invocable"]}
     return None
 
 
@@ -332,6 +333,8 @@ def save(name, description, tools, body):
         raise ValueError("스킬은 %d개까지 둘 수 있습니다." % MAX_SKILLS)
     folder = existing[name]["folder"] if name in existing else name
     tools_line = "tools: %s\n" % ", ".join(tools) if tools else ""
+    if name in existing and not existing[name]["model_invocable"]:      # 모델 호출 금지 표시는 편집해도 유지한다
+        tools_line += "disable-model-invocation: true\n"
     text = "---\nname: %s\ndescription: %s\n%s---\n\n%s\n" % (
         name, description, tools_line, body.strip().replace("\r\n", "\n"))
     if len(text.encode("utf-8")) > MAX_BYTES:
@@ -359,7 +362,7 @@ def remove(name):
 
 # ── ~/.claude/skills 가져오기 ─────────────────────────────────────────────
 # 화면은 폴더 이름만 보낸다. 서버는 그 이름을 원본 폴더 목록(importable)에서 찾을 때만 쓰고 경로로는 쓰지 않는다.
-# 복사는 skills/.import-<이름> 임시 폴더에서 끝낸 뒤 바꿔 넣어서, 중간에 실패해도 기존 스킬이 그대로 남는다.
+# 복사는 skills/.import-new-<이름> 임시 폴더에서 끝낸 뒤 바꿔 넣어서, 중간에 실패해도 기존 스킬이 그대로 남는다.
 
 IMPORT_LABEL = "~/.claude/skills"
 MAX_IMPORT_FILES = 40               # 가져올 때 스킬 하나가 가져가는 참고 파일 수
@@ -512,7 +515,7 @@ def import_skill(folder, overwrite=False):
         raise ValueError("같은 이름의 폴더가 이미 있지만 같은 스킬로 확인되지 않아 건드리지 않았습니다. 그 폴더를 먼저 정리해 주세요.")
     src = os.path.join(import_source_dir(), folder)
     take, skipped = _plan_import(src)
-    stage = os.path.join(SKILLS_DIR, ".import-" + name)
+    stage = os.path.join(SKILLS_DIR, ".import-new-" + name)
     backup = os.path.join(SKILLS_DIR, ".import-old-" + target_folder)
     moved = kept = False
     try:
