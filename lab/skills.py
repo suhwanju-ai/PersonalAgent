@@ -20,6 +20,7 @@ from . import config, html_render
 SKILLS_DIR = os.path.join(config.ROOT, "skills")
 SOURCE = "스킬"
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+MAX_DESCRIPTION = 500
 MAX_BYTES = 80000                   # 지침 2만 자(한글은 글자당 3바이트라 약 6만 바이트) + 머리말을 담는다
 
 
@@ -30,30 +31,78 @@ def _unquote(value):
     return value
 
 
+def _frontmatter(raw):
+    """머리말(--- 사이)과 본문으로 나눈다. YAML 전체가 아니라 스킬에 필요한 부분집합만 읽는다.
+
+    `key: value` 한 줄, 값이 > >- | |- 이면 이후 들여쓴 줄(빈 줄 포함)을 모은다.
+    값이 비어 있고 다음 줄이 들여쓰여 있으면 목록(- 항목)으로 보고 모은다.
+    닫는 ---가 없으면 머리말이 없는 글로 본다.
+    """
+    lines = raw.split("\n")
+    if not lines or lines[0].rstrip() != "---":
+        return {}, raw
+    end = next((i for i in range(1, len(lines)) if lines[i].rstrip() == "---"), None)
+    if end is None:
+        return {}, raw
+    meta, i = {}, 1
+    while i < end:
+        line = lines[i]
+        i += 1
+        key, sep, value = line.partition(":")
+        if not sep or line[:1] in " \t#" or not key.strip():
+            continue
+        key, value = key.strip().lower(), value.strip()
+        block = value in (">", ">-", "|", "|-", ">+", "|+")
+        if block or not value:
+            held = []
+            while i < end and (not lines[i].strip() or lines[i][:1] in " \t"):
+                held.append(lines[i].strip())
+                i += 1
+            while held and not held[-1]:
+                held.pop()
+            if block and value[0] == "|":
+                value = "\n".join(held)
+            else:
+                value = " ".join(h[2:] if h.startswith("- ") else h for h in held if h)
+        else:
+            value = _unquote(value)
+        meta[key] = value
+    return meta, "\n".join(lines[end + 1:]).lstrip("\n")
+
+
+def _tool_names(value):
+    """`a, b`, `a b`, `[a, b]` 모두 이름 목록으로."""
+    value = value.replace("[", " ").replace("]", " ")
+    return [_unquote(t) for t in re.split(r"[,\s]+", value) if t]
+
+
+def parse_text(raw, folder=""):
+    """SKILL.md 글 하나를 읽는다. 이름 규칙에 어긋나면 None."""
+    meta, body = _frontmatter(raw.replace("\r\n", "\n"))
+    name = (meta.get("name") or folder).lower()     # Claude Code 스킬은 name이 대문자인 경우가 있다(HTML)
+    if not _NAME.match(name):
+        return None
+    desc = " ".join((meta.get("description", "") + " " + meta.get("when_to_use", "")).split())
+    wanted = []
+    for t in _tool_names(meta.get("tools", "") + " " + meta.get("allowed-tools", "")):
+        if t not in wanted:
+            wanted.append(t)
+    return {"name": name, "folder": folder, "description": desc[:MAX_DESCRIPTION],
+            "tools": [t for t in wanted if t in SKILL_TOOLS],
+            "unsupported_tools": [t for t in wanted if t not in SKILL_TOOLS],
+            "model_invocable": meta.get("disable-model-invocation", "").lower() not in ("true", "yes", "1"),
+            "body": body.strip()}
+
+
 def _parse(path, folder):
     try:
         if os.path.getsize(path) > MAX_BYTES:
             return None
         with open(path, "r", encoding="utf-8-sig") as f:
-            raw = f.read().replace("\r\n", "\n")
+            raw = f.read()
     except OSError:
         return None
-    meta, body = {}, raw
-    if raw.startswith("---\n"):
-        end = raw.find("\n---", 4)
-        if end > 0:
-            for line in raw[4:end].split("\n"):
-                key, sep, value = line.partition(":")
-                if sep:
-                    meta[key.strip().lower()] = _unquote(value.strip())
-            body = raw[end + 4:].lstrip("\n")
-    name = (meta.get("name") or folder).lower()     # Claude Code 스킬은 name이 대문자인 경우가 있다(HTML)
-    if not _NAME.match(name):
-        return None
-    tools = [t.strip() for t in re.split(r"[,\s]+", meta.get("tools", "")) if t.strip()]
-    return {"name": name, "folder": folder,
-            "description": " ".join(meta.get("description", "").split())[:300],
-            "tools": [t for t in tools if t in SKILL_TOOLS], "body": body.strip()}
+    return parse_text(raw, folder)
 
 
 def load_all():
@@ -64,6 +113,8 @@ def load_all():
     except OSError:
         return []
     for folder in folders:
+        if folder.startswith("."):                  # .import-* 같은 작업 폴더는 스킬이 아니다
+            continue
         path = os.path.join(SKILLS_DIR, folder, "SKILL.md")
         if os.path.isfile(path):
             skill = _parse(path, folder)
@@ -80,6 +131,8 @@ def problems():
     except OSError:
         return out
     for folder in folders:
+        if folder.startswith("."):
+            continue
         path = os.path.join(SKILLS_DIR, folder, "SKILL.md")
         if not os.path.isfile(path):
             continue
@@ -157,7 +210,8 @@ def view():
     """화면에 보여 줄 스킬 목록과, 스킬이 고를 수 있는 도구."""
     # 본문은 싣지 않는다. 화면이 상태를 자주 읽는데 스킬마다 최대 2만 자가 매번 실리면 낭비다. 본문은 get()으로 받는다.
     return {
-        "skills": [{"name": s["name"], "description": s["description"], "tools": s["tools"]}
+        "skills": [{"name": s["name"], "description": s["description"], "tools": s["tools"],
+                    "unsupported_tools": s["unsupported_tools"], "model_invocable": s["model_invocable"]}
                    for s in load_all()],
         "tools": [{"name": n, "description": spec["description"]} for n, spec in SKILL_TOOLS.items()],
     }
@@ -179,8 +233,8 @@ def save(name, description, tools, body):
     if not isinstance(description, str) or not description.strip():
         raise ValueError("설명을 입력해 주세요. 모델이 이 설명을 보고 스킬을 쓸지 정합니다.")
     description = " ".join(description.split())
-    if len(description) > 300:
-        raise ValueError("설명은 300자까지 쓸 수 있습니다.")
+    if len(description) > MAX_DESCRIPTION:
+        raise ValueError("설명은 %d자까지 쓸 수 있습니다." % MAX_DESCRIPTION)
     if not isinstance(body, str) or not body.strip():
         raise ValueError("지침을 입력해 주세요.")
     if len(body) > MAX_BODY:
@@ -224,7 +278,7 @@ def remove(name):
 
 def entries():
     """use_skill과, 등록된 스킬이 쓰겠다고 한 내장 도구. 스킬이 없으면 빈 목록."""
-    skills = load_all()
+    skills = [s for s in load_all() if s["model_invocable"]]    # 모델 호출 금지 스킬은 모델에게 보이지 않는다
     if not skills:
         return []
     by_name = {s["name"]: s for s in skills}
