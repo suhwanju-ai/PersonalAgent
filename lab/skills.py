@@ -22,6 +22,10 @@ SOURCE = "스킬"
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 MAX_DESCRIPTION = 500
 MAX_BYTES = 80000                   # 지침 2만 자(한글은 글자당 3바이트라 약 6만 바이트) + 머리말을 담는다
+REFERENCE_EXTS = {".md", ".txt", ".json", ".csv", ".yaml", ".yml"}
+MAX_REF_FILES = 100                 # 스킬 하나가 내놓는 참고 파일 수
+MAX_REF_DEPTH = 3                   # 스킬 폴더 아래로 내려갈 수 있는 폴더 단계
+MAX_READ_CHARS = 20000
 
 
 def _unquote(value):
@@ -105,6 +109,77 @@ def _parse(path, folder):
     return parse_text(raw, folder)
 
 
+# ── 참고 파일 ──────────────────────────────────────────────────────────
+# 스킬 폴더 안의 글 파일(references/*.md 등)을 모델이 read_skill_file로 읽는다. 폴더 밖 내용이 새어 나가지 않게
+# list_files와 read_file이 같은 규칙(_ref_parts_ok)을 쓰고, 읽을 때는 링크와 실제 경로까지 한 번 더 확인한다.
+
+def _is_link(path):
+    """심볼릭 링크나 정션(Windows)이면 True."""
+    return os.path.islink(path) or (hasattr(os.path, "isjunction") and os.path.isjunction(path))
+
+
+def _ref_parts_ok(parts):
+    """상대 경로 조각 목록이 참고 파일로 쓸 수 있는 모양인지. 이름만 본다(파일 시스템은 보지 않는다)."""
+    if not parts or len(parts) - 1 > MAX_REF_DEPTH:
+        return False
+    for part in parts:
+        if not part or part.startswith("."):        # 빈 조각, ., .., 숨김
+            return False
+    if any(d.lower() == "scripts" for d in parts[:-1]):
+        return False
+    if len(parts) == 1 and parts[0].lower() == "skill.md":      # 본문은 use_skill로 읽는다
+        return False
+    return os.path.splitext(parts[-1])[1].lower() in REFERENCE_EXTS
+
+
+def list_files(skill_dir):
+    """SKILL.md를 뺀 참고 파일의 상대경로(/ 구분, 정렬). 숨김·scripts 폴더와 링크는 건너뛰고, 한도 넘는 건 버린다."""
+    found = []
+    for root, dirs, names in os.walk(skill_dir):
+        rel = os.path.relpath(root, skill_dir)
+        base = [] if rel == "." else rel.split(os.sep)
+        dirs[:] = sorted(d for d in dirs
+                         if not d.startswith(".") and d.lower() != "scripts"
+                         and not _is_link(os.path.join(root, d)) and len(base) < MAX_REF_DEPTH)
+        for n in sorted(names):
+            if _ref_parts_ok(base + [n]) and not _is_link(os.path.join(root, n))                     and os.path.isfile(os.path.join(root, n)):
+                found.append("/".join(base + [n]))
+                if len(found) >= MAX_REF_FILES:
+                    return sorted(found)
+    return sorted(found)
+
+
+def read_file(name, rel_path):
+    """스킬 폴더 안의 참고 파일 하나를 읽는다. 실패는 예외 대신 {"오류": ...}로 돌려준다(경로는 적지 않는다)."""
+    skill = next((s for s in load_all() if s["name"] == name), None) if isinstance(name, str) else None
+    if skill is None:
+        return {"오류": "그런 스킬은 없습니다."}
+    denied = {"오류": "읽을 수 없는 경로입니다. 스킬 폴더 안의 참고 파일 경로(예: references/a.md)만 쓸 수 있습니다."}
+    if not isinstance(rel_path, str) or not rel_path or any(c in rel_path for c in "\\:\0") or rel_path.startswith("/"):
+        return denied
+    parts = rel_path.split("/")
+    if not _ref_parts_ok(parts):
+        return denied
+    base = os.path.join(SKILLS_DIR, skill["folder"])
+    try:
+        walk = base
+        for part in parts:                          # 중간 폴더나 파일이 링크면 거부한다
+            walk = os.path.join(walk, part)
+            if _is_link(walk):
+                return denied
+        root = os.path.normcase(os.path.realpath(base))
+        target = os.path.normcase(os.path.realpath(walk))
+        if os.path.commonpath([root, target]) != root or not os.path.isfile(target):
+            return denied
+        with open(target, "r", encoding="utf-8-sig") as f:
+            text = f.read(MAX_READ_CHARS + 1)
+    except UnicodeDecodeError:
+        return {"오류": "텍스트로 읽을 수 없습니다."}
+    except (OSError, ValueError):
+        return denied
+    return {"스킬": skill["name"], "경로": rel_path, "내용": text[:MAX_READ_CHARS], "잘림": len(text) > MAX_READ_CHARS}
+
+
 def load_all():
     """등록된 스킬 목록. 읽을 수 없는 폴더는 건너뛴다."""
     found = {}
@@ -119,6 +194,7 @@ def load_all():
         if os.path.isfile(path):
             skill = _parse(path, folder)
             if skill and skill["name"] not in found:
+                skill["files"] = list_files(os.path.join(SKILLS_DIR, folder))
                 found[skill["name"]] = skill
     return list(found.values())
 
@@ -211,7 +287,8 @@ def view():
     # 본문은 싣지 않는다. 화면이 상태를 자주 읽는데 스킬마다 최대 2만 자가 매번 실리면 낭비다. 본문은 get()으로 받는다.
     return {
         "skills": [{"name": s["name"], "description": s["description"], "tools": s["tools"],
-                    "unsupported_tools": s["unsupported_tools"], "model_invocable": s["model_invocable"]}
+                    "unsupported_tools": s["unsupported_tools"], "model_invocable": s["model_invocable"],
+                    "files": len(s["files"])}
                    for s in load_all()],
         "tools": [{"name": n, "description": spec["description"]} for n, spec in SKILL_TOOLS.items()],
     }
@@ -288,7 +365,11 @@ def entries():
         skill = by_name.get(name) if isinstance(name, str) else None
         if skill is None:
             return {"오류": "그런 스킬은 없습니다.", "쓸 수 있는 스킬": sorted(by_name)}
-        return {"스킬": skill["name"], "지침": skill["body"]}
+        out = {"스킬": skill["name"], "지침": skill["body"]}
+        if skill["files"]:
+            out["참고 파일"] = skill["files"]
+            out["안내"] = "참고 파일은 read_skill_file(skill, path)로 읽는다."
+        return out
 
     listing = "\n".join("- %s: %s" % (s["name"], s["description"]) for s in skills)
     out = [{
@@ -301,6 +382,24 @@ def entries():
         "source": SOURCE,
         "call": use_skill,
     }]
+    with_files = sorted(s["name"] for s in skills if s["files"])
+    if with_files:
+        def read_skill_file(args):
+            args = args if isinstance(args, dict) else {}
+            if args.get("skill") not in with_files:     # 모델에게 보이지 않는 스킬의 파일은 읽지 않는다
+                return {"오류": "그런 스킬은 없거나 참고 파일이 없습니다.", "참고 파일이 있는 스킬": with_files}
+            return read_file(args["skill"], args.get("path"))
+
+        out.append({
+            "name": "read_skill_file",
+            "description": "스킬 폴더의 참고 파일을 읽는다. use_skill 결과의 '참고 파일' 목록에 있는 경로만 쓴다.",
+            "parameters": {"type": "object",
+                           "properties": {"skill": {"type": "string", "enum": with_files, "description": "스킬 이름"},
+                                          "path": {"type": "string", "description": "참고 파일 경로(예: references/a.md)"}},
+                           "required": ["skill", "path"]},
+            "source": SOURCE,
+            "call": read_skill_file,
+        })
     wanted = []
     for s in skills:
         for t in s["tools"]:

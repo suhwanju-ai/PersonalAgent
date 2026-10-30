@@ -98,5 +98,115 @@ class LoadTests(SkillsTestCase):
         self.assertNotIn("quiet", use["description"])
 
 
+class ReferenceFileTests(SkillsTestCase):
+    HEAD = "---\nname: ref\ndescription: d\n---\n본문"
+
+    def make(self, files=None):
+        return self.write_skill("ref", self.HEAD, files or {})
+
+    def test_list_files_excludes_scripts_and_skill_md(self):
+        base = self.make({"references/a.md": "A", "notes.txt": "N", "scripts/run.py": "x",
+                          "assets/x.png": "p", "scripts/doc.md": "s", ".git/c.md": "h"})
+        self.assertEqual(skills.list_files(base), ["notes.txt", "references/a.md"])
+
+    def test_list_files_limits_depth_and_count(self):
+        base = self.make({"a/b/c/d/deep.md": "x", "a/b/c/ok.md": "x"})
+        self.assertEqual(skills.list_files(base), ["a/b/c/ok.md"])
+        files = {"f%03d.md" % i: "x" for i in range(skills.MAX_REF_FILES + 5)}
+        base = self.write_skill("many", self.HEAD.replace("ref", "many"), files)
+        self.assertEqual(len(skills.list_files(base)), skills.MAX_REF_FILES)
+
+    def test_load_all_carries_files_and_view_counts(self):
+        self.make({"references/a.md": "A"})
+        self.assertEqual(skills.load_all()[0]["files"], ["references/a.md"])
+        self.assertEqual(skills.view()["skills"][0]["files"], 1)
+
+    def test_read_returns_content(self):
+        self.make({"references/a.md": "안녕"})
+        r = skills.read_file("ref", "references/a.md")
+        self.assertEqual(r, {"스킬": "ref", "경로": "references/a.md", "내용": "안녕", "잘림": False})
+
+    def test_read_truncates_at_20000(self):
+        self.make({"big.txt": "가" * 25000})
+        r = skills.read_file("ref", "big.txt")
+        self.assertIs(r["잘림"], True)
+        self.assertEqual(len(r["내용"]), 20000)
+
+    def test_read_rejects_escape(self):
+        self.make({"references/a.md": "A", "scripts/run.py": "print(1)"})
+        secret = os.path.join(self.tmp, "secret.md")
+        with open(secret, "w", encoding="utf-8") as f:
+            f.write("TOPSECRET")
+        for bad in ["../secret.md", "..\\secret.md", os.path.abspath(secret), "C:\\x.md",
+                    "references/../../secret.md", "", "scripts/run.py", "references", "/secret.md",
+                    "references//a.md", "./references/a.md", "ref\0.md", "SKILL.md", "SKILL.md.txt"]:
+            r = skills.read_file("ref", bad)
+            self.assertIn("오류", r, bad)
+            self.assertNotIn("TOPSECRET", str(r), bad)
+            self.assertNotIn(self.tmp, str(r), bad)
+        self.assertIn("오류", skills.read_file("ref", None))
+
+    def test_read_rejects_link_escape(self):
+        base = self.make({"references/a.md": "A"})
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with open(os.path.join(outside, "s.md"), "w", encoding="utf-8") as f:
+            f.write("TOPSECRET")
+        try:
+            os.symlink(os.path.join(outside, "s.md"), os.path.join(base, "link.md"))
+            os.symlink(outside, os.path.join(base, "linkdir"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("심볼릭 링크를 만들 수 없습니다")
+        for bad in ["link.md", "linkdir/s.md"]:
+            r = skills.read_file("ref", bad)
+            self.assertIn("오류", r)
+            self.assertNotIn("TOPSECRET", str(r))
+        self.assertEqual(skills.list_files(base), ["references/a.md"])
+
+    def test_read_non_utf8(self):
+        base = self.make()
+        with open(os.path.join(base, "k.md"), "wb") as f:
+            f.write("한글".encode("cp949"))
+        r = skills.read_file("ref", "k.md")
+        self.assertEqual(r, {"오류": "텍스트로 읽을 수 없습니다."})
+
+    def test_read_rejects_other_extensions(self):
+        self.make({"x.png": "p", "x.py": "print(1)"})
+        self.assertIn("오류", skills.read_file("ref", "x.png"))
+        self.assertIn("오류", skills.read_file("ref", "x.py"))
+
+    def test_read_unknown_skill(self):
+        self.make({"a.md": "A"})
+        self.assertIn("오류", skills.read_file("nope", "a.md"))
+        self.assertIn("오류", skills.read_file(None, "a.md"))
+
+    def test_read_agrees_with_list(self):
+        self.make({"references/a.md": "A", "n.TXT": "N", "d/e/f/g.csv": "1"})
+        listed = skills.list_files(os.path.join(self.tmp, "ref"))
+        self.assertEqual(listed, ["d/e/f/g.csv", "n.TXT", "references/a.md"])
+        for rel in listed:
+            self.assertNotIn("오류", skills.read_file("ref", rel), rel)
+
+    def test_entries_adds_read_tool_only_when_files_exist(self):
+        self.write_skill("plain", "---\nname: plain\ndescription: d\n---\n본문")
+        self.assertEqual([e["name"] for e in skills.entries()], ["use_skill"])
+        self.make({"references/a.md": "A"})
+        tools = {e["name"]: e for e in skills.entries()}
+        read = tools["read_skill_file"]
+        self.assertEqual(read["source"], "스킬")
+        self.assertEqual(read["parameters"]["properties"]["skill"]["enum"], ["ref"])
+        self.assertEqual(read["call"]({"skill": "ref", "path": "references/a.md"})["내용"], "A")
+        self.assertIn("오류", read["call"]({"skill": "plain", "path": "a.md"}))
+        self.assertIn("오류", read["call"](None))
+
+    def test_use_skill_lists_files(self):
+        self.make({"references/a.md": "A"})
+        use = skills.entries()[0]["call"]({"name": "ref"})
+        self.assertEqual(use["참고 파일"], ["references/a.md"])
+        self.assertIn("read_skill_file", use["안내"])
+        self.write_skill("plain", "---\nname: plain\ndescription: d\n---\n본문")
+        self.assertNotIn("참고 파일", skills.entries()[0]["call"]({"name": "plain"}))
+
+
 if __name__ == "__main__":
     unittest.main()
