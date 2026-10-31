@@ -9,7 +9,7 @@
 <link rel="alternate icon" href="/static/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/manifest.json">
-<link rel="stylesheet" href="/static/style.css?v=agents-grid-24">
+<link rel="stylesheet" href="/static/style.css?v=agents-grid-25">
 </head>
 <body>
 <header class="top">
@@ -170,7 +170,8 @@
     <section class="card research-card" id="requestCard">
       <div class="card-head"><div><h2>연구 요청</h2><span class="subtle">연구책임자에게 요청</span></div></div>
       <label class="sr-only" for="question">연구 요청</label><textarea id="question" rows="5" placeholder="연구 질문과 조건을 입력하세요"></textarea>
-      <div class="research-skills" id="researchSkills" hidden><span class="research-skills-label">사용할 스킬</span><span id="researchSkillBoxes"></span></div>
+      <div class="research-skills" id="researchSkills"><span class="research-skills-label">사용할 스킬</span><span id="researchSkillBoxes"></span><button class="manage-link" id="attachSkillZip" type="button">+ zip 첨부</button><input type="file" id="attachSkillZipInput" accept=".zip,application/zip" hidden></div>
+      <div id="researchSkillNote" class="meta skill-zip-note" aria-live="polite"></div>
       <div class="runrow"><button class="primary" id="startResearch">연구 시작</button><button class="stop" id="stopResearch" disabled>중지</button></div><div id="researchNote" class="meta" aria-live="polite"></div>
     </section>
     <section class="card prompt-card" id="rolePromptCard">
@@ -220,6 +221,6 @@
   <p class="hint role-prompt-hint">글 지침과 참고 파일(.md·.txt·.json·.csv·.yaml)만 복사합니다. scripts 폴더 등 코드는 가져오지 않고 실행하지도 않습니다. Claude Code 전용 내용은 이 앱에서 동작하지 않을 수 있습니다.</p>
 </dialog>
 
-<script src="/static/app.js?v=state-busy-25"></script>
+<script src="/static/app.js?v=skill-attach-26"></script>
 </body>
 </html>

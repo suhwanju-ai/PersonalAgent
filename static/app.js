@@ -417,7 +417,6 @@ function drawResearchSkills(list) {
   const usable = list.filter((s) => s.model_invocable !== false);      // 모델 호출 금지 스킬은 고를 수 없다
   const names = new Set(usable.map((s) => s.name));
   [...SKILL_OFF].forEach((n) => { if (!names.has(n)) SKILL_OFF.delete(n); });
-  $("researchSkills").hidden = !usable.length;
   $("researchSkillBoxes").innerHTML = usable.map((s) =>
     `<label class="skill-tool" title="${esc(s.description)}"><input type="checkbox" value="${esc(s.name)}"${SKILL_OFF.has(s.name) ? "" : " checked"}><span>${esc(s.name)}</span></label>`).join("");
 }
@@ -516,8 +515,7 @@ $("importClaudeSkills").addEventListener("click", openClaudeSkills);
 /* zip 파일로 스킬 등록. 서버(lab/skills.py install_zip)가 압축을 풀기 전에 이름·크기를 검사한다.
    같은 이름이 있으면 서버가 exists로 알려 주고, 덮어쓰기 단추를 눌러야만 바꾼다. */
 const ZIP_MAX = 2 * 1024 * 1024;       // 서버 MAX_ZIP_BYTES와 맞춘다
-async function sendSkillZip(file, overwrite) {
-  const note = $("skillZipNote");
+async function sendSkillZip(file, overwrite, note = $("skillZipNote")) {
   note.textContent = `${file.name} 올리는 중…`;
   note.classList.remove("warn");
   try {
@@ -530,7 +528,7 @@ async function sendSkillZip(file, overwrite) {
       note.textContent = `${r.message} `;
       const b = document.createElement("button");
       b.type = "button"; b.className = "ghost compact danger"; b.textContent = "덮어쓰기";
-      b.addEventListener("click", () => sendSkillZip(file, true));
+      b.addEventListener("click", () => sendSkillZip(file, true, note));
       note.appendChild(b);
     } else {
       note.textContent = r.message || "등록하지 못했습니다.";
@@ -541,14 +539,19 @@ async function sendSkillZip(file, overwrite) {
     note.classList.add("warn");
   }
 }
-$("uploadSkillZip").addEventListener("click", () => $("skillZipInput").click());
-$("skillZipInput").addEventListener("change", () => {
-  const file = $("skillZipInput").files[0];
-  $("skillZipInput").value = "";
-  if (!file) return;
-  if (file.size > ZIP_MAX) { $("skillZipNote").textContent = "zip 파일이 너무 큽니다(2MB 초과)."; return; }
-  sendSkillZip(file, false);
-});
+// 도구 탭 스킬 카드와 에이전트 탭 연구 요청 카드가 같은 등록 경로를 쓴다
+function wireSkillZip(button, input, note) {
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    input.value = "";
+    if (!file) return;
+    if (file.size > ZIP_MAX) { note.textContent = "zip 파일이 너무 큽니다(2MB 초과)."; return; }
+    sendSkillZip(file, false, note);
+  });
+}
+wireSkillZip($("uploadSkillZip"), $("skillZipInput"), $("skillZipNote"));
+wireSkillZip($("attachSkillZip"), $("attachSkillZipInput"), $("researchSkillNote"));
 $("closeClaudeSkill").addEventListener("click", () => $("claudeSkillDialog").close());
 $("claudeSkillDialog").addEventListener("click", (ev) => { if (ev.target === $("claudeSkillDialog")) $("claudeSkillDialog").close(); });
 $("claudeSkillList").addEventListener("click", async (ev) => {
@@ -1318,7 +1321,7 @@ async function runResearch(question, followUp) {
   startPolling();
   try {
     const body = { question, follow_up: !!followUp };
-    if (!$("researchSkills").hidden) body.skills = chosenSkills();   // 스킬 줄이 없으면 보내지 않아 서버가 등록된 모두를 쓴다
+    if (document.querySelector("#researchSkillBoxes input")) body.skills = chosenSkills();   // 고를 스킬이 하나도 없으면 보내지 않아 서버가 등록된 모두를 쓴다
     const r = await post("/api/research", body);
     INFLIGHT = false;
     stopPolling();
