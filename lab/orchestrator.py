@@ -277,7 +277,7 @@ def has_session():
     return bool(_SESSION["items"])
 
 
-def research(question, follow_up=False):
+def research(question, follow_up=False, skills_only=None):
     """연구 질문 하나를 끝까지 돌린다.
 
     follow_up이면 **앞선 연구의 대화를 이어받는다.** 연구책임자가 이미 받아 둔
@@ -292,7 +292,8 @@ def research(question, follow_up=False):
     started = time.time()
     log = []
     # 위임 도구에 더해, 스킬(HTML 문서 만들기 등)을 쓸 수 있다. 연구원에게는 주지 않는다.
-    entries = _delegate_entries(log) + skills.entries()
+    # skills_only는 이번 연구에서 화면이 체크한 스킬 이름이다(None이면 등록된 모두).
+    entries = _delegate_entries(log) + skills.entries(skills_only)
     history = _SESSION["items"] if follow_up else None
     if not follow_up:
         reset_session()

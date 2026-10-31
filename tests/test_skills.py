@@ -89,6 +89,16 @@ class LoadTests(SkillsTestCase):
         self.write_skill("shown", "---\nname: shown\n---\n본문")
         self.assertEqual([s["name"] for s in skills.load_all()], ["shown"])
 
+    def test_entries_only_offers_chosen_skills(self):
+        self.write_skill("a", "---\nname: a\ndescription: da\n---\n본문")
+        self.write_skill("b", "---\nname: b\ndescription: db\n---\n본문")
+        use = skills.entries(["b"])[0]
+        self.assertEqual(use["parameters"]["properties"]["name"]["enum"], ["b"])
+        self.assertNotIn("- a:", use["description"])
+        self.assertEqual(skills.entries([]), [])                       # 아무것도 고르지 않으면 스킬 없음
+        self.assertEqual(skills.entries(["nope"]), [])                 # 없는 이름은 무시
+        self.assertEqual(len(skills.entries(None)[0]["parameters"]["properties"]["name"]["enum"]), 2)
+
     def test_entries_hides_non_invocable(self):
         self.write_skill("quiet", "---\nname: quiet\ndisable-model-invocation: true\n---\n본문")
         self.assertEqual(skills.entries(), [])
@@ -534,6 +544,78 @@ class ParseRouteTests(unittest.TestCase):
     def test_parse_rejects_non_string(self):
         for bad in (None, 5, ["a"], {}):
             self.assertIs(self.app._skill_parse({"text": bad})["ok"], False)
+
+
+class InstallZipTests(SkillsTestCase):
+    MD = "---\nname: zipped\ndescription: d\n---\n본문"
+
+    def make_zip(self, files, symlink=None):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+            if symlink:
+                info = zipfile.ZipInfo(symlink)
+                info.external_attr = (0o120777 << 16)
+                zf.writestr(info, "/etc/passwd")
+        return buf.getvalue()
+
+    def test_installs_root_and_folder_layouts(self):
+        r = skills.install_zip(self.make_zip({"SKILL.md": self.MD, "references/a.md": "참고"}))
+        self.assertEqual((r["name"], r["copied"]), ("zipped", 1))
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "zipped", "references", "a.md")))
+        shutil.rmtree(os.path.join(self.tmp, "zipped"))
+        skills.install_zip(self.make_zip({"my-skill/SKILL.md": self.MD, "__MACOSX/x": "junk"}))
+        self.assertEqual([s["name"] for s in skills.load_all()], ["zipped"])
+
+    def test_scripts_and_other_files_are_not_written(self):
+        r = skills.install_zip(self.make_zip({"SKILL.md": self.MD, "scripts/run.py": "x", "a.exe": "x", "ok.md": "y"}))
+        self.assertEqual(r["copied"], 1)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "zipped", "scripts")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "zipped", "a.exe")))
+        self.assertIn("scripts/run.py", r["skipped"])
+
+    def test_unsafe_names_rejected(self):
+        for bad in ("../evil.md", "a/../../evil.md", "/abs.md", "C:/x.md", "..\\evil.md"):
+            with self.assertRaises(ValueError, msg=bad):
+                skills.install_zip(self.make_zip({"SKILL.md": self.MD, bad: "x"}))
+        self.assertEqual(skills.load_all(), [])
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.tmp), "evil.md")))
+
+    def test_links_skipped(self):
+        r = skills.install_zip(self.make_zip({"SKILL.md": self.MD}, symlink="link.md"))
+        self.assertIn(r["copied"], (0,))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "zipped", "link.md")))
+
+    def test_needs_exactly_one_skill(self):
+        with self.assertRaises(ValueError):
+            skills.install_zip(self.make_zip({"readme.md": "x"}))
+        with self.assertRaises(ValueError):
+            skills.install_zip(self.make_zip({"a/SKILL.md": self.MD, "b/SKILL.md": self.MD.replace("zipped", "other")}))
+        with self.assertRaises(ValueError):
+            skills.install_zip(b"not a zip")
+        with self.assertRaises(ValueError):
+            skills.install_zip(b"")
+
+    def test_existing_needs_overwrite(self):
+        z = self.make_zip({"SKILL.md": self.MD})
+        skills.install_zip(z)
+        with self.assertRaises(skills.SkillExists):
+            skills.install_zip(z)
+        skills.install_zip(self.make_zip({"SKILL.md": self.MD.replace("본문", "새 본문")}), overwrite=True)
+        self.assertEqual(skills.get("zipped")["body"], "새 본문")
+
+    def test_size_limits(self):
+        with self.assertRaises(ValueError):
+            skills.install_zip(b"x" * (skills.MAX_ZIP_BYTES + 1))
+        big = self.make_zip({"SKILL.md": self.MD, "big.md": "a" * (skills.MAX_IMPORT_FILE_BYTES + 1)})
+        r = skills.install_zip(big)
+        self.assertEqual(r["copied"], 0)
+        self.assertTrue(any("big.md" in x for x in r["skipped"]))
+        with self.assertRaises(ValueError):
+            skills.install_zip(self.make_zip({"SKILL.md": "---\nname: Bad Name!\n---\nx"}))
 
 
 if __name__ == "__main__":

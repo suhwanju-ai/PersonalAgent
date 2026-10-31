@@ -660,3 +660,15 @@ main.panel.agents-layout.on[data-panel="agents"] > .agents-main {
 .cs-skipped code { font:11px Consolas,monospace; background:#f1efe9; padding:0 4px; border-radius:3px; }
 .cs-done { margin-top:6px; font-size:11.5px; color:#0f7b6c; }
 @media (max-width:760px) { .cs-top { flex-direction:column; } .cs-go { align-self:stretch; } }
+
+.research-skills { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 14px; margin-top:10px; font-size:12.5px; }
+.research-skills[hidden] { display:none; }
+.research-skills-label { color:#4a4842; font-size:11.5px; font-weight:600; }
+#researchSkillBoxes { display:flex; flex-wrap:wrap; gap:6px 14px; }
+#researchSkillBoxes .skill-tool { align-items:center; gap:5px; cursor:pointer; }
+
+.skill-zip-note { margin:6px 0 2px; font-size:11.5px; line-height:1.6; }
+.skill-zip-note:empty { display:none; }
+.skill-zip-note.warn { color:var(--warn); }
+.skill-zip-note button { margin-left:6px; }
+.skill-zip-note .danger { border-color:var(--warn); color:var(--warn); }

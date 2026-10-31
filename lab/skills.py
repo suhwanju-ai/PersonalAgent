@@ -502,10 +502,18 @@ def import_skill(folder, overwrite=False):
         raise ValueError("가져올 수 있는 스킬 폴더 목록에 없는 이름입니다.")
     if not item["ok"]:
         raise ValueError(item["reason"])
-    name = item["name"]
+    return _install_from(os.path.join(import_source_dir(), folder), item["name"], overwrite)
+
+
+class SkillExists(ValueError):
+    """같은 이름의 스킬이 이미 있어 overwrite 없이는 등록하지 않았다. 화면은 이때 덮어쓸지 묻는다."""
+
+
+def _install_from(src, name, overwrite):
+    """src 폴더의 SKILL.md와 허용된 참고 파일을 skills/<name>으로 복사한다(이미 있으면 overwrite일 때만 교체)."""
     existing = {s["name"]: s for s in load_all()}
     if name in existing and not overwrite:
-        raise ValueError("같은 이름의 스킬이 이미 있습니다. 덮어쓰려면 확인해 주세요.")
+        raise SkillExists("같은 이름의 스킬이 이미 있습니다. 덮어쓰려면 확인해 주세요.")
     if name not in existing and len(existing) >= MAX_SKILLS:
         raise ValueError("스킬은 %d개까지 둘 수 있습니다." % MAX_SKILLS)
     target_folder = existing[name]["folder"] if name in existing else name
@@ -513,7 +521,6 @@ def import_skill(folder, overwrite=False):
     if name not in existing and os.path.lexists(target):
         # 폴더 이름만 같고 다른 스킬이거나 읽지 못하는 초안일 수 있다. 같은 이름의 스킬이 확인된 폴더만 바꾼다.
         raise ValueError("같은 이름의 폴더가 이미 있지만 같은 스킬로 확인되지 않아 건드리지 않았습니다. 그 폴더를 먼저 정리해 주세요.")
-    src = os.path.join(import_source_dir(), folder)
     take, skipped = _plan_import(src)
     stage = os.path.join(SKILLS_DIR, ".import-new-" + name)
     backup = os.path.join(SKILLS_DIR, ".import-old-" + target_folder)
@@ -551,6 +558,111 @@ def import_skill(folder, overwrite=False):
     return {"name": name, "copied": len(take), "skipped": _shown(skipped)}
 
 
+# ── zip 파일로 등록 ─────────────────────────────────────────────────────
+# 올린 zip은 믿을 수 없는 입력이다. 압축을 풀기 전에 항목마다 이름·크기·종류를 확인하고, 허용한 파일만
+# 임시 폴더에 써서 폴더 가져오기와 같은 복사 경로(_install_from)로 넘긴다. 스크립트와 실행 파일은 디스크에 쓰지 않는다.
+
+MAX_ZIP_BYTES = 2 * 1024 * 1024         # 올릴 수 있는 zip 크기(base64로 실어 보내므로 서버 본문 한도 안에 든다)
+MAX_ZIP_ENTRIES = 500                   # zip 안 항목 수
+MAX_ZIP_UNPACKED = 4 * 1024 * 1024      # 허용 파일의 압축을 푼 크기 합계(압축 폭탄 대비)
+
+
+def _zip_entries(zf):
+    """zip 안 파일 항목을 (상대 경로 조각 목록, 정보)로. 이름이 위험하면 ValueError, 링크·폴더는 건너뛴다."""
+    import stat
+
+    infos = zf.infolist()
+    if len(infos) > MAX_ZIP_ENTRIES:
+        raise ValueError("zip 안 항목이 너무 많습니다(%d개 초과)." % MAX_ZIP_ENTRIES)
+    out = []
+    for info in infos:
+        name = info.filename
+        if name.endswith("/") or name.startswith("__MACOSX/"):
+            continue
+        if "\\" in name or "\x00" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+            raise ValueError("zip 안에 안전하지 않은 경로가 있습니다.")
+        parts = name.split("/")
+        if any(p in ("", ".", "..") for p in parts):
+            raise ValueError("zip 안에 안전하지 않은 경로가 있습니다.")
+        if stat.S_ISLNK(info.external_attr >> 16):
+            continue                                                   # 링크는 따라가지 않는다
+        out.append((parts, info))
+    return out
+
+
+def install_zip(data, filename="", overwrite=False):
+    """zip 한 개로 스킬 하나를 등록한다. SKILL.md가 zip 맨 위나 폴더 하나 안에 있어야 한다. 문제가 있으면 ValueError."""
+    import io
+    import tempfile
+    import zipfile
+
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise ValueError("zip 파일이 비어 있습니다.")
+    if len(data) > MAX_ZIP_BYTES:
+        raise ValueError("zip 파일이 너무 큽니다(%dMB 초과)." % (MAX_ZIP_BYTES // (1024 * 1024)))
+    _recover_backups()
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(bytes(data)))
+    except (zipfile.BadZipFile, OSError):
+        raise ValueError("zip 파일을 읽을 수 없습니다.") from None
+    with zf:
+        entries = _zip_entries(zf)
+        roots = {tuple(p[:-1]) for p, _ in entries if p[-1] == "SKILL.md"}
+        roots = {r for r in roots if len(r) <= 1}                      # 맨 위, 또는 폴더 하나 안
+        if not roots:
+            raise ValueError("zip 맨 위나 폴더 하나 안에 SKILL.md가 있어야 합니다.")
+        if len(roots) > 1:
+            raise ValueError("스킬이 여러 개 들어 있습니다. zip 하나에는 스킬 하나만 담아 주세요.")
+        root = next(iter(roots))
+        base = list(root)
+        tmp = tempfile.mkdtemp(prefix="skillzip-")
+        try:
+            skipped, total, written = [], 0, 0
+            for parts, info in entries:
+                if parts[:len(base)] != base:
+                    skipped.append("/".join(parts) + " (스킬 폴더 밖)")
+                    continue
+                rel = parts[len(base):]
+                shown = "/".join(rel)
+                if rel == ["SKILL.md"]:
+                    if info.file_size > MAX_BYTES:
+                        raise ValueError("SKILL.md가 너무 큽니다(%dKB 초과)." % (MAX_BYTES // 1000))
+                elif not _ref_parts_ok(rel) or info.file_size > MAX_IMPORT_FILE_BYTES:
+                    skipped.append(shown + (" (너무 큼)" if info.file_size > MAX_IMPORT_FILE_BYTES else ""))
+                    continue
+                elif written >= MAX_IMPORT_FILES or total + info.file_size > MAX_IMPORT_TOTAL:
+                    skipped.append(shown + " (한도 초과)")
+                    continue
+                if info.flag_bits & 0x1:
+                    raise ValueError("암호가 걸린 zip은 쓸 수 없습니다.")
+                with zf.open(info) as src:
+                    chunk = src.read(info.file_size + 1)               # 선언한 크기보다 크면 거짓이므로 거부한다
+                if len(chunk) != info.file_size:
+                    raise ValueError("zip 안 파일 크기가 맞지 않습니다.")
+                dst = os.path.join(tmp, *rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with open(dst, "wb") as f:
+                    f.write(chunk)
+                if rel != ["SKILL.md"]:
+                    written += 1
+                    total += len(chunk)
+            md = os.path.join(tmp, "SKILL.md")
+            try:
+                with open(md, "r", encoding="utf-8-sig") as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                raise ValueError("SKILL.md를 글로 읽을 수 없습니다.") from None
+            fallback = base[0] if base else re.sub(r"\.zip$", "", os.path.basename(str(filename)), flags=re.I)
+            parsed = parse_text(text, fallback.lower())
+            if parsed is None:
+                raise ValueError("이름이 규칙에 맞지 않습니다. 영문 소문자·숫자·-·_만 쓸 수 있고 40자까지입니다.")
+            r = _install_from(tmp, parsed["name"], overwrite)
+            r["skipped"] = _shown(skipped + r["skipped"])
+            return r
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ── 화면에 붙여 넣은 SKILL.md 읽기 ─────────────────────────────────────────
 
 def parse_form(text):
@@ -581,9 +693,13 @@ def parse_form(text):
 
 # ── 모델에게 줄 도구 ──────────────────────────────────────────────────
 
-def entries():
-    """use_skill과, 등록된 스킬이 쓰겠다고 한 내장 도구. 스킬이 없으면 빈 목록."""
+def entries(only=None):
+    """use_skill과, 등록된 스킬이 쓰겠다고 한 내장 도구. 스킬이 없으면 빈 목록.
+
+    only가 이름 목록이면 그 스킬만 모델에게 준다(빈 목록이면 하나도 주지 않는다). None이면 모두."""
     skills = [s for s in load_all() if s["model_invocable"]]    # 모델 호출 금지 스킬은 모델에게 보이지 않는다
+    if only is not None:
+        skills = [s for s in skills if s["name"] in only]
     if not skills:
         return []
     by_name = {s["name"]: s for s in skills}

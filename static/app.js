@@ -407,6 +407,26 @@ function drawSkills(view) {
   $("skillList").innerHTML = view.skills.length ? view.skills.map((s) =>
     `<button type="button" class="skill-row" data-name="${esc(s.name)}"><b>${esc(s.name)}</b>${skillBadges(s)}<span>${esc(s.description)}</span></button>`).join("")
     : '<div class="empty">등록된 스킬이 없습니다.</div>';
+  drawResearchSkills(view.skills);
+}
+
+/* 연구 요청 카드의 스킬 체크박스. 스킬을 저장·가져오기·삭제하면 drawSkills가 다시 불러 바로 반영된다.
+   체크를 푼 이름만 기억하므로 새로 등록한 스킬은 체크된 채로 나온다. */
+const SKILL_OFF = new Set();
+function drawResearchSkills(list) {
+  const usable = list.filter((s) => s.model_invocable !== false);      // 모델 호출 금지 스킬은 고를 수 없다
+  const names = new Set(usable.map((s) => s.name));
+  [...SKILL_OFF].forEach((n) => { if (!names.has(n)) SKILL_OFF.delete(n); });
+  $("researchSkills").hidden = !usable.length;
+  $("researchSkillBoxes").innerHTML = usable.map((s) =>
+    `<label class="skill-tool" title="${esc(s.description)}"><input type="checkbox" value="${esc(s.name)}"${SKILL_OFF.has(s.name) ? "" : " checked"}><span>${esc(s.name)}</span></label>`).join("");
+}
+$("researchSkillBoxes").addEventListener("change", (e) => {
+  if (e.target.type !== "checkbox") return;
+  e.target.checked ? SKILL_OFF.delete(e.target.value) : SKILL_OFF.add(e.target.value);
+});
+function chosenSkills() {
+  return [...document.querySelectorAll("#researchSkillBoxes input:checked")].map((i) => i.value);
 }
 
 async function openSkill(name) {
@@ -492,6 +512,43 @@ async function openClaudeSkills() {
   }
 }
 $("importClaudeSkills").addEventListener("click", openClaudeSkills);
+
+/* zip 파일로 스킬 등록. 서버(lab/skills.py install_zip)가 압축을 풀기 전에 이름·크기를 검사한다.
+   같은 이름이 있으면 서버가 exists로 알려 주고, 덮어쓰기 단추를 눌러야만 바꾼다. */
+const ZIP_MAX = 2 * 1024 * 1024;       // 서버 MAX_ZIP_BYTES와 맞춘다
+async function sendSkillZip(file, overwrite) {
+  const note = $("skillZipNote");
+  note.textContent = `${file.name} 올리는 중…`;
+  note.classList.remove("warn");
+  try {
+    const r = await post("/api/skills/zip", { name: file.name, data: await readAsBase64(file), overwrite: !!overwrite });
+    if (r.ok) {
+      drawSkills(r.skills);
+      const skipped = (r.skipped || []).length ? ` · 건너뜀 ${r.skipped.length}개` : "";
+      note.textContent = `${r.name} 스킬을 등록했습니다(참고 파일 ${r.copied}개${skipped}). 바로 적용됩니다.`;
+    } else if (r.exists) {
+      note.textContent = `${r.message} `;
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "ghost compact danger"; b.textContent = "덮어쓰기";
+      b.addEventListener("click", () => sendSkillZip(file, true));
+      note.appendChild(b);
+    } else {
+      note.textContent = r.message || "등록하지 못했습니다.";
+      note.classList.add("warn");
+    }
+  } catch (e) {
+    note.textContent = e.message || "서버에 연결하지 못했습니다.";
+    note.classList.add("warn");
+  }
+}
+$("uploadSkillZip").addEventListener("click", () => $("skillZipInput").click());
+$("skillZipInput").addEventListener("change", () => {
+  const file = $("skillZipInput").files[0];
+  $("skillZipInput").value = "";
+  if (!file) return;
+  if (file.size > ZIP_MAX) { $("skillZipNote").textContent = "zip 파일이 너무 큽니다(2MB 초과)."; return; }
+  sendSkillZip(file, false);
+});
 $("closeClaudeSkill").addEventListener("click", () => $("claudeSkillDialog").close());
 $("claudeSkillDialog").addEventListener("click", (ev) => { if (ev.target === $("claudeSkillDialog")) $("claudeSkillDialog").close(); });
 $("claudeSkillList").addEventListener("click", async (ev) => {
@@ -1260,7 +1317,9 @@ async function runResearch(question, followUp) {
   INFLIGHT = true;
   startPolling();
   try {
-    const r = await post("/api/research", { question, follow_up: !!followUp });
+    const body = { question, follow_up: !!followUp };
+    if (!$("researchSkills").hidden) body.skills = chosenSkills();   // 스킬 줄이 없으면 보내지 않아 서버가 등록된 모두를 쓴다
+    const r = await post("/api/research", body);
     INFLIGHT = false;
     stopPolling();
     ROUNDS[ROUNDS.length - 1].log = r.log || [];

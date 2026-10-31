@@ -283,6 +283,9 @@ def _research(p):
     if not question:
         return {"ok": False, "message": "연구 질문을 입력해 주세요."}
     follow_up = bool(p.get("follow_up")) and orchestrator.has_session()
+    chosen = p.get("skills")        # 화면에서 체크한 스킬 이름. 없으면 등록된 스킬 모두
+    if chosen is not None and (not isinstance(chosen, list) or not all(isinstance(n, str) for n in chosen)):
+        return {"ok": False, "message": "스킬 선택이 올바르지 않습니다."}
     # 꺼져 있는 연구원은 여기서 띄운다. 따로 [시작]을 누르지 않아도 연구가 시작된다.
     # 띄우는 동안에도 진행 상황이 "도는 중"으로 보이도록 먼저 내건다.
     orchestrator.begin(question, follow_up)
@@ -297,7 +300,7 @@ def _research(p):
                     "message": "%s을(를) 띄우지 못했습니다. %s"
                                % (roles.ROLES[role_name]["label"], r.get("message", ""))}
         started.append(roles.ROLES[role_name]["label"])
-    out = orchestrator.research(question, follow_up=follow_up)
+    out = orchestrator.research(question, follow_up=follow_up, skills_only=chosen)
     out["has_session"] = orchestrator.has_session()
     out["auto_started"] = started
     return out
@@ -470,6 +473,26 @@ def _skill_parse(p):
 def _skill_importable(_p):
     """~/.claude/skills에서 가져올 수 있는 스킬 목록."""
     return {"ok": True, **skills.importable()}
+
+
+@route("/api/skills/zip")
+def _skill_zip(p):
+    """zip 파일 하나로 스킬을 등록한다. 파일은 base64로 받는다. 같은 이름이 있으면 exists:true로 알리고, overwrite:true일 때만 바꾼다."""
+    import base64
+    import binascii
+
+    try:
+        raw = base64.b64decode(p.get("data") or "", validate=True)
+    except (binascii.Error, ValueError, TypeError):
+        return {"ok": False, "message": "zip 파일을 읽을 수 없습니다."}
+    try:
+        r = skills.install_zip(raw, p.get("name") if isinstance(p.get("name"), str) else "",
+                               overwrite=p.get("overwrite") is True)
+    except skills.SkillExists as exc:
+        return {"ok": False, "exists": True, "message": str(exc)}
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, **r, "skills": skills.view()}
 
 
 @route("/api/skills/import")
