@@ -162,6 +162,8 @@ def run(message, entries, prompt=None, web_search=False, max_steps=None, history
                 result = {"오류": "사용자가 중지했습니다."}
             elif entry is None:
                 result = {"오류": "그런 이름의 도구는 없습니다."}
+            elif c.get("bad_args"):
+                result = {"오류": "인자가 올바른 JSON 객체가 아닙니다. 형식을 확인해 다시 보내 주세요."}
             else:
                 t0 = time.time()
                 try:

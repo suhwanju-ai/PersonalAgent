@@ -78,7 +78,8 @@ def serve(role_name):
                 self._json({"ok": False, "result": "지시를 읽지 못했습니다."}, 400)
                 return
 
-            instruction = (body.get("instruction") or "").strip()
+            instruction = body.get("instruction") if isinstance(body, dict) else None
+            instruction = instruction.strip() if isinstance(instruction, str) else ""
             if not instruction:
                 self._json({"ok": False, "result": "지시가 비어 있습니다."})
                 return

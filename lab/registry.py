@@ -14,6 +14,16 @@ import os
 from . import config
 
 
+def _write_json(path, data):
+    """임시 파일에 쓰고 바꿔 끼운다. 쓰는 도중 꺼져도 JSON이 반쯤 남지 않는다."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.replace(temp_path, path)
+
+
 def _disabled_mcp_tools():
     path = os.path.join(config.STATE_DIR, "disabled_mcp_tools.json")
     try:
@@ -37,10 +47,7 @@ def disable_mcp_tool(source, name):
     disabled = _disabled_mcp_tools()
     disabled.add((source, name))
     path = os.path.join(config.STATE_DIR, "disabled_mcp_tools.json")
-    os.makedirs(config.STATE_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(sorted([list(item) for item in disabled]), f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    _write_json(path, sorted([list(item) for item in disabled]))
 
 
 def restore_mcp_tool(source, name):
@@ -52,10 +59,7 @@ def restore_mcp_tool(source, name):
         if os.path.exists(path):
             os.remove(path)
         return
-    os.makedirs(config.STATE_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(sorted([list(item) for item in disabled]), f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    _write_json(path, sorted([list(item) for item in disabled]))
 
 
 # ── 설명문 덮어쓰기 ───────────────────────────────────────────────────
@@ -75,10 +79,7 @@ def overrides():
 def set_override(name, description):
     data = overrides()
     data[name] = description
-    os.makedirs(config.STATE_DIR, exist_ok=True)
-    with open(config.TOOL_OVERRIDES_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    _write_json(config.TOOL_OVERRIDES_PATH, data)
 
 
 def clear_overrides():

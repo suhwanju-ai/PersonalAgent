@@ -162,10 +162,14 @@ def _send(role_name, instruction, timeout=600):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "result": "연구원이 요청을 거절했습니다. (HTTP %d)" % exc.code}
     except (urllib.error.URLError, OSError) as exc:
         return {"ok": False,
                 "result": "연구원에게 연결하지 못했습니다. 기동되어 있는지 확인해 주세요. (%s)"
                           % str(exc)[:80]}
+    except ValueError:
+        return {"ok": False, "result": "연구원의 응답을 읽지 못했습니다."}
 
 
 def _delegate_entries(log):

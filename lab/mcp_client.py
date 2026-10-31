@@ -178,7 +178,9 @@ def _resolve_path(value, cwd):
 def _child_env(extra=None):
     # .env의 비밀(OPENROUTER_API_KEY 등)은 서드파티 서버에 상속시키지 않는다.
     # 서버가 필요로 하는 값은 설정의 env에 ${VAR}로 명시한다.
-    env = {k: v for k, v in os.environ.items() if k not in config.DOTENV_KEYS}
+    # 시스템 환경 변수로만 준 앱 비밀도 함께 뺀다.
+    env = {k: v for k, v in os.environ.items()
+           if k not in config.DOTENV_KEYS and k not in APP_SECRETS}
     env.update(extra or {})
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"

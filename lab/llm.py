@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -53,6 +54,9 @@ def _post(payload, settings, timeout=None, retries=1):
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = _message(e.read().decode("utf-8", "replace"))[:300]
+            key = os.environ.get("OPENROUTER_API_KEY", "").strip()      # Ollama에는 키가 없을 수 있다
+            if key:
+                detail = detail.replace(key, "***")     # 공급자가 잘못된 키를 되돌려 줄 때
             if e.code == 429:
                 raise QuotaExceeded(detail)
             if e.code in (500, 502, 503, 504) and attempt < retries:
@@ -155,15 +159,18 @@ def call(system_prompt, items, declarations, web_search=False, temperature=None,
         fn = tc.get("function") or {}
         call_id = tc.get("id", "")
         raw_args = fn.get("arguments") or "{}"
+        bad_args = False
         try:
             args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
         except ValueError:
-            args = {}
+            args, bad_args = {}, True
+        if not isinstance(args, dict):
+            args, bad_args = {}, True               # 객체가 아니면 도구에 넘길 수 없다
         output.append({"type": "function_call", "call_id": call_id,
                        "name": fn.get("name", ""),
                        "arguments": json.dumps(args, ensure_ascii=False)})
         calls.append({"name": fn.get("name", ""),
-                      "args": args if isinstance(args, dict) else {}, "call_id": call_id})
+                      "args": args, "call_id": call_id, "bad_args": bad_args})
     # OpenRouter online 검색 결과는 provider/model에 따라 citations로 제공된다.
     for citation in message.get("citations") or []:
         if isinstance(citation, dict) and citation.get("url"):

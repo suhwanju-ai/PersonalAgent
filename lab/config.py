@@ -105,9 +105,10 @@ def load_env():
             key, _, value = line.partition("=")
             key = key.strip()
             value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
-                DOTENV_KEYS.add(key)
+            if key:
+                DOTENV_KEYS.add(key)            # 부모가 이미 넘겨 준 값이어도 .env 출신으로 표시한다
+                if key not in os.environ:
+                    os.environ[key] = value
 
 
 load_env()
