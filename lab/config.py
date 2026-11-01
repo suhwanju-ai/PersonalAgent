@@ -139,34 +139,64 @@ def is_link_local_host(hostname):
         return False
 
 
-def _normalize_ollama_url(value):
+def _normalize_base_url(value, label):
+    """OpenAI 호환 서버 주소를 검증하고 /v1 경로를 붙여 돌려준다. label은 오류 문구에 쓴다."""
     if not isinstance(value, str):
-        raise ValueError("Ollama 주소를 문자열로 입력해 주세요.")
+        raise ValueError(f"{label} 주소를 문자열로 입력해 주세요.")
     value = (value or "").strip().rstrip("/")
     parsed = urllib.parse.urlsplit(value)
     if (parsed.scheme not in ("http", "https") or not parsed.hostname
             or parsed.username or parsed.password or parsed.query or parsed.fragment
             or any(ord(char) <= 32 for char in value)):
-        raise ValueError("Ollama 주소는 사용자 정보·쿼리 없이 http(s)://호스트/v1 형식으로 입력해 주세요.")
+        raise ValueError(f"{label} 주소는 사용자 정보·쿼리 없이 http(s)://호스트/v1 형식으로 입력해 주세요.")
     try:
         parsed.port
     except ValueError:
-        raise ValueError("Ollama 주소의 포트 번호가 올바르지 않습니다.")
+        raise ValueError(f"{label} 주소의 포트 번호가 올바르지 않습니다.")
     if is_link_local_host(parsed.hostname):
         # 클라우드 메타데이터(169.254.169.254 등)로 요청이 나가지 않게 막는다.
-        raise ValueError("링크로컬 주소는 Ollama 주소로 쓸 수 없습니다.")
+        raise ValueError(f"링크로컬 주소는 {label} 주소로 쓸 수 없습니다.")
     if not parsed.path or parsed.path == "/":
         value += "/v1"
     return value
 
 
+PROVIDERS = ("openrouter", "ollama", "modeldock")
+MODELDOCK_CONTEXT_MIN = 512
+MODELDOCK_CONTEXT_MAX = 2000000
+
 _LLM_CACHE = {"stamp": None, "settings": None}
+
+
+def modeldock_key():
+    """MODELDOCK_API_KEY의 앞뒤 공백을 지운 값. 없으면 빈 문자열. 값은 밖으로 내보내지 않는다."""
+    try:
+        load_env()
+        return os.environ.get("MODELDOCK_API_KEY", "").strip()
+    except Exception:
+        return ""
+
+
+def _parse_context_tokens(value):
+    """0(기본값 사용) 또는 512~2000000 정수. 문자열 숫자는 허용, bool은 거부한다."""
+    if isinstance(value, bool):
+        raise ValueError("ModelDock 컨텍스트 크기는 숫자로 입력해 주세요.")
+    try:
+        number = int(value.strip()) if isinstance(value, str) else int(value)
+    except (TypeError, ValueError):
+        raise ValueError("ModelDock 컨텍스트 크기는 숫자로 입력해 주세요.")
+    if isinstance(value, float) and value != number:
+        raise ValueError("ModelDock 컨텍스트 크기는 정수로 입력해 주세요.")
+    if number != 0 and not MODELDOCK_CONTEXT_MIN <= number <= MODELDOCK_CONTEXT_MAX:
+        raise ValueError(f"ModelDock 컨텍스트 크기는 0 또는 {MODELDOCK_CONTEXT_MIN}~{MODELDOCK_CONTEXT_MAX} 사이로 입력해 주세요.")
+    return number
 
 
 def llm_settings():
     """현재 모델 제공자 설정을 반환한다. 키와 비밀값은 포함하지 않는다.
 
     요청마다 여러 번 불리므로 설정 파일의 mtime이 같으면 이전 결과를 재사용한다.
+    modeldock_key_set은 환경변수에서 오므로 캐시 밖에서 매번 계산한다.
     """
     try:
         stamp = os.stat(LLM_SETTINGS_PATH).st_mtime_ns
@@ -174,7 +204,17 @@ def llm_settings():
         stamp = None
     if _LLM_CACHE["settings"] is None or _LLM_CACHE["stamp"] != stamp:
         _LLM_CACHE["stamp"], _LLM_CACHE["settings"] = stamp, _read_llm_settings()
-    return dict(_LLM_CACHE["settings"])
+    settings = dict(_LLM_CACHE["settings"])
+    settings["modeldock_key_set"] = bool(modeldock_key())
+    return settings
+
+
+def context_window_tokens():
+    """현재 제공자의 컨텍스트 창 크기. ModelDock에 직접 지정한 값이 있으면 그것을 쓴다."""
+    settings = llm_settings()
+    if settings["provider"] == "modeldock" and settings["modeldock_context_tokens"] > 0:
+        return settings["modeldock_context_tokens"]
+    return CONTEXT_WINDOW_TOKENS
 
 
 def _read_llm_settings():
@@ -184,6 +224,9 @@ def _read_llm_settings():
         "openrouter_model": os.environ.get("OPENROUTER_MODEL", GEN_MODEL).strip() or GEN_MODEL,
         "ollama_model": "",
         "ollama_base_url": OLLAMA_BASE_DEFAULT,
+        "modeldock_model": "",
+        "modeldock_base_url": "",
+        "modeldock_context_tokens": 0,
     }
     try:
         with open(LLM_SETTINGS_PATH, "r", encoding="utf-8") as f:
@@ -192,21 +235,26 @@ def _read_llm_settings():
         saved = {}
     if isinstance(saved, dict):
         provider = saved.get("provider")
-        if provider in ("openrouter", "ollama"):
+        if provider in PROVIDERS:
             settings["provider"] = provider
         legacy_model = saved.get("model")
         if isinstance(legacy_model, str) and legacy_model.strip():
             settings[settings["provider"] + "_model"] = legacy_model.strip()
-        for key in ("openrouter_model", "ollama_model"):
+        for key in ("openrouter_model", "ollama_model", "modeldock_model"):
             model = saved.get(key)
             if isinstance(model, str) and model.strip():
                 settings[key] = model.strip()
-        base_url = saved.get("ollama_base_url")
-        if isinstance(base_url, str) and base_url.strip():
-            try:
-                settings["ollama_base_url"] = _normalize_ollama_url(base_url)
-            except ValueError:
-                pass
+        for key, label in (("ollama_base_url", "Ollama"), ("modeldock_base_url", "ModelDock")):
+            base_url = saved.get(key)
+            if isinstance(base_url, str) and base_url.strip():
+                try:
+                    settings[key] = _normalize_base_url(base_url, label)
+                except ValueError:
+                    pass
+        try:
+            settings["modeldock_context_tokens"] = _parse_context_tokens(saved.get("modeldock_context_tokens", 0))
+        except ValueError:
+            pass
     settings["model"] = settings[settings["provider"] + "_model"]
     return settings
 
@@ -218,7 +266,7 @@ def save_llm_settings(payload):
     if not isinstance(raw_provider, str):
         raise ValueError("모델 제공자를 선택해 주세요.")
     provider = raw_provider.strip().lower()
-    if provider not in ("openrouter", "ollama"):
+    if provider not in PROVIDERS:
         raise ValueError("지원하지 않는 모델 제공자입니다.")
     raw_model = payload.get("model")
     if not isinstance(raw_model, str):
@@ -226,22 +274,24 @@ def save_llm_settings(payload):
     model = raw_model.strip()
     if not model or len(model) > 160:
         raise ValueError("모델 이름을 1~160자로 입력해 주세요.")
-    openrouter_model = payload.get("openrouter_model", "")
-    ollama_model = payload.get("ollama_model", "")
-    if not isinstance(openrouter_model, str) or not isinstance(ollama_model, str):
+    models = {name: payload.get(name + "_model", "") for name in PROVIDERS}
+    if not all(isinstance(value, str) for value in models.values()):
         raise ValueError("모델 이름 형식이 올바르지 않습니다.")
-    openrouter_model = openrouter_model.strip()
-    ollama_model = ollama_model.strip()
-    if provider == "openrouter":
-        openrouter_model = model
-    else:
-        ollama_model = model
-    if len(openrouter_model) > 160 or len(ollama_model) > 160:
+    models = {name: value.strip() for name, value in models.items()}
+    models[provider] = model
+    if any(len(value) > 160 for value in models.values()):
         raise ValueError("모델 이름은 160자를 넘을 수 없습니다.")
-    base_url = _normalize_ollama_url(payload.get("ollama_base_url") or OLLAMA_BASE_DEFAULT)
+    base_url = _normalize_base_url(payload.get("ollama_base_url") or OLLAMA_BASE_DEFAULT, "Ollama")
+    raw_modeldock_url = payload.get("modeldock_base_url") or ""
+    if provider == "modeldock" and not (isinstance(raw_modeldock_url, str) and raw_modeldock_url.strip()):
+        raise ValueError("ModelDock 주소를 입력해 주세요.")
+    modeldock_url = _normalize_base_url(raw_modeldock_url, "ModelDock") if raw_modeldock_url else ""
+    context_tokens = _parse_context_tokens(payload.get("modeldock_context_tokens", 0))
     saved = {"provider": provider, "model": model,
-             "openrouter_model": openrouter_model, "ollama_model": ollama_model,
-             "ollama_base_url": base_url}
+             "openrouter_model": models["openrouter"], "ollama_model": models["ollama"],
+             "ollama_base_url": base_url,
+             "modeldock_model": models["modeldock"], "modeldock_base_url": modeldock_url,
+             "modeldock_context_tokens": context_tokens}
     os.makedirs(STATE_DIR, exist_ok=True)
     temp_path = LLM_SETTINGS_PATH + ".tmp"
     with open(temp_path, "w", encoding="utf-8") as f:

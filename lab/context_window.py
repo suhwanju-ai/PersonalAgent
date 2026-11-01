@@ -43,7 +43,7 @@ def measure(prompt, items, declarations, usage=None, phase="ready", step=0, outp
     return {
         "model": settings["model"],
         "provider": settings["provider"],
-        "limit": config.CONTEXT_WINDOW_TOKENS,
+        "limit": config.context_window_tokens(),
         "total": sum(parts),
         "parts": dict(zip(("instructions", "tools", "context"), parts)),
         "basis": "api" if reported else "estimate",
@@ -64,7 +64,7 @@ class Meter:
         history(저장된 대화)는 서명에 넣지 않는다. 넣으면 대화가 끝날 때마다 서명이 바뀌어
         화면을 새로 고칠 때 API 실측값이 추정값으로 덮인다. 대화를 비울 때는 invalidate()를 부른다.
         """
-        signature = json.dumps([config.llm_settings(), config.CONTEXT_WINDOW_TOKENS,
+        signature = json.dumps([config.llm_settings(), config.context_window_tokens(),
                                 prompt, declarations], ensure_ascii=False, sort_keys=True)
         with self._lock:
             if signature != self._signature:
