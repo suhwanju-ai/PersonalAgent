@@ -8,7 +8,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from lab import config, llm
+import app
+from lab import config, llm, mcp_client
 
 
 class ConfigTests(unittest.TestCase):
@@ -397,6 +398,119 @@ class TransportTests(unittest.TestCase):
                                             "call_id": "c1", "bad_args": False}])
         self.assertEqual(result["items"][0]["type"], "function_call")
         self.assertEqual(result["items"][0]["call_id"], "c1")
+
+
+class AppTests(unittest.TestCase):
+    KEY = "md-secret-key-123"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.old_path = config.LLM_SETTINGS_PATH
+        self.old_state_dir = config.STATE_DIR
+        self.old_key = os.environ.get("MODELDOCK_API_KEY")
+        config.LLM_SETTINGS_PATH = os.path.join(self.tmp, "llm_settings.json")
+        config.STATE_DIR = self.tmp
+        config._LLM_CACHE["settings"] = None
+        os.environ["MODELDOCK_API_KEY"] = self.KEY
+
+    def tearDown(self):
+        config.LLM_SETTINGS_PATH = self.old_path
+        config.STATE_DIR = self.old_state_dir
+        config._LLM_CACHE["settings"] = None
+        if self.old_key is None:
+            os.environ.pop("MODELDOCK_API_KEY", None)
+        else:
+            os.environ["MODELDOCK_API_KEY"] = self.old_key
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def serve(self, handler):
+        fake = FakeModelDock(handler)
+        self.addCleanup(fake.close)
+        return fake
+
+    def test_error_messages_by_provider(self):
+        md = {"provider": "modeldock"}
+        cases = [
+            ("network: timed out", "연결하지"),
+            ("HTTP 401 invalid key " + self.KEY, "MODELDOCK_API_KEY"),
+            ("HTTP 403 forbidden " + self.KEY, "MODELDOCK_API_KEY"),
+            ("HTTP 404 no model " + self.KEY, "공개"),
+            ("HTTP 503 loading " + self.KEY, "준비되지"),
+            ("HTTP 400 bad request", "거부"),
+        ]
+        for text, word in cases:
+            message = app.provider_error_message(md, llm.LLMError(text))
+            self.assertIn(word, message, text)
+            self.assertNotIn(self.KEY, message, text)
+        for code in ("401", "403", "404", "503"):
+            self.assertNotIn("detail-xyz", app.provider_error_message(
+                md, llm.LLMError("HTTP %s detail-xyz" % code)))
+        self.assertIn("HTTP 400 bad request",
+                      app.provider_error_message(md, llm.LLMError("HTTP 400 bad request")))
+
+    def test_error_messages_keep_old_providers(self):
+        ollama = {"provider": "ollama"}
+        self.assertEqual(app.provider_error_message(ollama, llm.LLMError("network: x")),
+                         "앱 서버에서 Ollama에 연결하지 못했습니다. Ollama 서버 주소와 "
+                         "운영 서버에서의 네트워크 접근을 확인해 주세요.")
+        self.assertEqual(app.provider_error_message(ollama, llm.LLMError("HTTP 500 x")),
+                         "Ollama가 요청을 거부했습니다(HTTP 500 x). 모델 이름이 맞는지, "
+                         "도구 호출을 지원하는 모델인지 확인해 주세요.")
+        self.assertEqual(app.provider_error_message({"provider": "openrouter"}, llm.LLMError("HTTP 500")),
+                         "응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.")
+
+    def test_models_route_returns_ids(self):
+        fake = self.serve(lambda r: (200, {}, {"data": [{"id": "a"}, {"id": "b"}]}))
+        result = app.ROUTES["/api/llm/models"]({"modeldock_base_url": fake.base_url})
+        self.assertEqual(result, {"ok": True, "models": ["a", "b"]})
+
+    def test_models_route_uses_saved_url_when_empty(self):
+        fake = self.serve(lambda r: (200, {}, {"data": [{"id": "z"}]}))
+        config.save_llm_settings({"provider": "modeldock", "model": "m1",
+                                  "modeldock_base_url": fake.base_url})
+        result = app.ROUTES["/api/llm/models"]({"modeldock_base_url": "  "})
+        self.assertEqual(result, {"ok": True, "models": ["z"]})
+
+    def test_models_route_needs_an_address(self):
+        result = app.ROUTES["/api/llm/models"]({})
+        self.assertFalse(result["ok"])
+        self.assertIn("주소", result["message"])
+
+    def test_models_route_rejects_bad_url(self):
+        for url in ("http://169.254.169.254/v1", "ftp://h/v1", 5, ["x"]):
+            result = app.ROUTES["/api/llm/models"]({"modeldock_base_url": url})
+            self.assertFalse(result["ok"], url)
+            self.assertTrue(result["message"], url)
+
+    def test_models_route_maps_server_errors(self):
+        fake = self.serve(lambda r: (401, {}, {"error": {"message": "bad " + self.KEY}}))
+        result = app.ROUTES["/api/llm/models"]({"modeldock_base_url": fake.base_url})
+        self.assertFalse(result["ok"])
+        self.assertIn("MODELDOCK_API_KEY", result["message"])
+        self.assertNotIn(self.KEY, result["message"])
+
+    def test_models_route_is_lock_free(self):
+        self.assertIn("/api/llm/models", app.NO_LOCK)
+
+    def test_state_exposes_flag_not_key(self):
+        with mock.patch.object(app.registry, "build", return_value=([], [])), \
+                mock.patch.object(app.registry, "disabled_mcp_tools", return_value=[]), \
+                mock.patch.object(app.runner, "load_chat", return_value=[]), \
+                mock.patch.object(app, "catalog", return_value={}), \
+                mock.patch.object(app, "connected_names", return_value=[]), \
+                mock.patch.object(app.datafile, "listing_detail", return_value=[]), \
+                mock.patch.object(app.skills, "view", return_value=[]):
+            view = app.state()["llm_settings"]
+        self.assertIn("modeldock_key_set", view)
+        self.assertTrue(view["modeldock_key_set"])
+        self.assertNotIn(self.KEY, json.dumps(view))
+
+    def test_modeldock_key_is_an_app_secret(self):
+        self.assertIn("MODELDOCK_API_KEY", mcp_client.APP_SECRETS)
+        self.assertEqual(mcp_client.reserved_placeholders("${MODELDOCK_API_KEY}"),
+                         ["MODELDOCK_API_KEY"])
+        with self.assertRaises(mcp_client.MissingEnv):
+            mcp_client.expand_env("Bearer ${MODELDOCK_API_KEY}")
 
 
 if __name__ == "__main__":

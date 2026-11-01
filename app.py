@@ -122,6 +122,39 @@ def state():
 
 # ── 요청 처리 ─────────────────────────────────────────────────────────
 
+def provider_error_message(settings, exc):
+    """LLMError를 제공자별 안내 문구로 바꾼다.
+
+    LLMError 메시지는 "network: ..." 또는 "HTTP <코드> ..."로 시작하고 키를 담지 않는다
+    (llm._scrub). ModelDock의 401/403/404/503 문구에는 예외 문자열을 넣지 않는다.
+    """
+    provider = (settings or {}).get("provider")
+    text = str(exc)
+    if provider == "modeldock":
+        if text.startswith("network:"):
+            return ("ModelDock 서버에 연결하지 못했습니다. 서버 주소·포트(6060)와 "
+                    "네트워크를 확인해 주세요.")
+        if text.startswith(("HTTP 401", "HTTP 403")):
+            return ("ModelDock이 키를 받아 주지 않습니다. .env의 MODELDOCK_API_KEY와 "
+                    "키 권한(추론 전용·멤버·관리자)을 확인해 주세요.")
+        if text.startswith("HTTP 404"):
+            return "모델을 찾을 수 없습니다. 이름이 맞는지, 관리자가 공개한 모델인지 확인해 주세요."
+        if text.startswith("HTTP 503"):
+            return ("모델이 준비되지 않았습니다(중지·로딩·오류). 잠시 뒤 다시 하거나 "
+                    "관리자에게 시작·자동 기동을 요청해 주세요.")
+        if text.startswith("HTTP"):
+            return ("ModelDock이 요청을 거부했습니다(%s). 도구 호출을 지원하는 모델인지 "
+                    "확인해 주세요." % text)
+        return "ModelDock 응답을 처리하지 못했습니다(%s)." % text
+    if provider == "ollama":
+        if text.startswith("network:"):
+            return ("앱 서버에서 Ollama에 연결하지 못했습니다. Ollama 서버 주소와 "
+                    "운영 서버에서의 네트워크 접근을 확인해 주세요.")
+        return ("Ollama가 요청을 거부했습니다(%s). 모델 이름이 맞는지, "
+                "도구 호출을 지원하는 모델인지 확인해 주세요." % text)
+    return "응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요."
+
+
 def handle_chat(payload):
     message = (payload.get("message") or "").strip()
     if not message:
@@ -146,16 +179,7 @@ def handle_chat(payload):
                     "message": ".env 파일에 키가 없습니다. OPENROUTER_API_KEY를 확인해 주세요."}
         return {"ok": False, "message": "처리 중 문제가 생겼습니다."}
     except llm.LLMError as exc:
-        if config.llm_settings()["provider"] == "ollama":
-            # LLMError 메시지는 "network: ..." 또는 "HTTP <코드> ..."이고 키를 담지 않는다.
-            if str(exc).startswith("network:"):
-                message = ("앱 서버에서 Ollama에 연결하지 못했습니다. Ollama 서버 주소와 "
-                           "운영 서버에서의 네트워크 접근을 확인해 주세요.")
-            else:
-                message = ("Ollama가 요청을 거부했습니다(%s). 모델 이름이 맞는지, "
-                           "도구 호출을 지원하는 모델인지 확인해 주세요." % exc)
-            return {"ok": False, "message": message}
-        return {"ok": False, "message": "응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요."}
+        return {"ok": False, "message": provider_error_message(config.llm_settings(), exc)}
     finally:
         CONTEXT_METER.finish(failed=failed)
     turns.append({"message": message, "answer": out["answer"], "calls": out["calls"],
@@ -212,6 +236,29 @@ def _llm_settings_save(p):
                 "message": "설정을 디스크에 저장하지 못했습니다. 배포 환경에서 state/ 폴더에 쓰기 권한과 영구 저장 공간이 있는지 확인해 주세요."}
     CONTEXT_METER.invalidate()
     return {"ok": True, "settings": settings}
+
+
+@route("/api/llm/models", lock=False)
+def _llm_models(p):
+    """ModelDock 서버의 모델 목록. 주소를 비우면 저장된 주소를 쓴다. 연구가 도는 중에도 받는다."""
+    raw = p.get("modeldock_base_url")
+    if raw is None:
+        raw = ""
+    if not isinstance(raw, str):
+        return {"ok": False, "message": "ModelDock 서버 주소는 문자열이어야 합니다."}
+    saved = config.llm_settings()
+    try:
+        url = config._normalize_base_url(raw.strip(), "ModelDock") if raw.strip() else ""
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
+    url = url or saved.get("modeldock_base_url") or ""
+    if not url:
+        return {"ok": False, "message": "ModelDock 서버 주소를 먼저 입력해 주세요."}
+    try:
+        models = llm.list_models({**saved, "provider": "modeldock", "modeldock_base_url": url})
+    except llm.LLMError as exc:
+        return {"ok": False, "message": provider_error_message({"provider": "modeldock"}, exc)}
+    return {"ok": True, "models": models}
 
 
 @route("/api/prompt")

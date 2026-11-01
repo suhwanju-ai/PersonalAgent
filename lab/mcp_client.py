@@ -39,7 +39,7 @@ LAUNCH_LOG = []              # 어떤 서버를 어떤 실행 파일로 띄웠�
 # 채운 주소는 메모리에만 있고 어디에도 기록하지 않는다.
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-APP_SECRETS = frozenset({"OPENROUTER_API_KEY", "APP_ACCESS_TOKEN"})
+APP_SECRETS = frozenset({"OPENROUTER_API_KEY", "MODELDOCK_API_KEY", "APP_ACCESS_TOKEN"})
 
 
 def reserved_placeholders(*values):
