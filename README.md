@@ -24,7 +24,7 @@ Windows에서는 `run.bat`, Ubuntu에서는 `./run.sh` 또는 `python3 app.py`�
 - 전체 현황: API 응답 뒤에는 **마지막 호출의 입력 + 출력 토큰**을 사용합니다. 여러 호출의 청구 토큰을 누적한 값과 다릅니다. 응답 대기 중과 도구 결과 추가 직후에는 로컬 추정값을 표시합니다.
 - 상세 현황: Instructions는 적용한 역할 지시문, Tools는 도구 이름·설명·매개변수 스키마(연결된 MCP 포함), Context는 저장된 앞선 대화와 이번 요청의 메시지·응답·도구 호출·실행 결과입니다. 항목별 수치는 텍스트 길이 기반 추정이며, 응답 뒤에는 API 입력 합계에 비례 배분하고 출력 토큰을 Context에 더합니다. 실제 tokenizer나 API가 항목별로 측정한 값은 아닙니다.
 - 대화창의 대화는 `state/chat_history.json`에 저장되어 다음 요청의 입력에 이어 붙습니다(사용자 메시지·응답·도구 호출·도구 결과 모두). 앱을 다시 켜도 이어지며, 최근 30턴(`lab/config.py`의 `CHAT_MAX_TURNS`)까지만 남기고 오래된 턴부터 지웁니다. 대화창의 [대화 초기화]를 누르면 기록을 지우고 Context가 0에서 다시 시작합니다. 입력창에만 작성한 미전송 문장은 포함하지 않습니다. 완료 후 마지막 상태를 유지하며, 역할·도구 구성을 변경해 적용하면 저장된 대화를 포함한 새 구성의 초기 추정값으로 갱신합니다. 처리 중에는 0.5초 간격으로 상태를 조회합니다.
-- 모델 제공자와 모델 이름은 도구 탭의 **모델 연결**에서 설정합니다. Ollama는 기본 주소 `http://localhost:11434/v1`을 사용하며, 설치한 모델 이름을 입력합니다. OpenRouter 키는 `.env`에 둡니다. 컨텍스트 최대치는 `OPENROUTER_CONTEXT_WINDOW_TOKENS`로 지정합니다.
+- 모델 제공자와 모델 이름은 도구 탭의 **모델 연결**에서 설정합니다. Ollama는 기본 주소 `http://localhost:11434/v1`을 사용하며, 설치한 모델 이름을 입력합니다. OpenRouter 키는 `.env`에 둡니다. 컨텍스트 최대치는 `OPENROUTER_CONTEXT_WINDOW_TOKENS`로 지정합니다. ModelDock은 **서버 주소**(`/v1`로 끝나는 OpenAI 호환 주소)를 입력하고 **모델 목록 불러오기**로 모델을 고르며, **컨텍스트 창 크기**에 모델 서버에 배포된 값(512~2,000,000)을 적으면 계기판이 그 값을 기준으로 계산합니다. 0이면 `OPENROUTER_CONTEXT_WINDOW_TOKENS`를 씁니다.
 - 계기판을 위해 추가 API 호출이나 패키지 설치를 하지 않습니다. `lab/context_window.py`가 계산하고 `/api/context`가 상태를 제공합니다.
 
 ## 실행
@@ -37,7 +37,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-`.env`의 `OPENROUTER_API_KEY=` 뒤에 발급받은 API 키를 입력하고 저장합니다. Ollama를 사용할 때는 Ollama를 실행한 뒤 도구 탭의 **모델 연결**에서 제공자를 Ollama로 바꾸고 API 주소와 설치된 모델 이름을 저장합니다. 설정은 `state/llm_settings.json`에 보관됩니다.
+`.env`의 `OPENROUTER_API_KEY=` 뒤에 발급받은 API 키를 입력하고 저장합니다. Ollama를 사용할 때는 Ollama를 실행한 뒤 도구 탭의 **모델 연결**에서 제공자를 Ollama로 바꾸고 API 주소와 설치된 모델 이름을 저장합니다. 설정은 `state/llm_settings.json`에 보관됩니다. ModelDock 서버에 인증이 켜져 있다면 `.env`에 `MODELDOCK_API_KEY=`를 적습니다(인증이 없으면 비워 둡니다). 키는 `.env`에만 두며 화면과 로그에는 나오지 않고, 바꾸면 앱을 다시 시작해야 합니다.
 
 ```powershell
 .\run.bat
@@ -71,7 +71,7 @@ mcp_catalog.json            연결할 수 있는 MCP 서버 목록 (화면에서
 mcp_config.json             지금 붙어 있는 서버. 처음에는 비어 있다
 
 lab/config.py               모델 제공자 · 모델 · 포트 설정
-lab/llm.py                  OpenRouter 또는 Ollama 호환 Chat Completions 호출
+lab/llm.py                  OpenRouter, Ollama 또는 ModelDock 호환 Chat Completions 호출
 lab/tools.py                내장 도구 memo_tool_1/2/3/4 (검색·저장·삭제·수정)
 lab/registry.py             내장 도구 + MCP 도구를 한 목록으로. 설명문 덮어쓰기
 lab/mcp_client.py           MCP 클라이언트 — stdio 와 Streamable HTTP
@@ -79,6 +79,7 @@ lab/skills.py               skills/<이름>/SKILL.md를 읽어 use_skill 도구�
 lab/html_render.py          마크다운·JSON을 디자인된 HTML 문서로 변환(render_html 도구)
 skills/                     스킬 폴더. 기본 제공: html
 tests/test_skills.py        스킬 테스트 — py -W error -m unittest tests.test_skills -v
+tests/test_llm_providers.py 제공자 테스트 — py -W error -m unittest tests.test_llm_providers -v
 lab/runner.py               도구를 쓰는 대화 루프. 결정은 LLM, 실행은 이 파일
 lab/roles.py                세 역할의 지시문과 도구 배분
 lab/orchestrator.py         자식 프로세스 기동·종료, delegate_* 도구, 위임 로그, 후속 질의 세션
@@ -155,7 +156,7 @@ OS 수준 격리 실행기가 구성되기 전까지 `lab/sandbox.py`는 요청�
 
 ## 모델
 
-기본 제공자는 OpenRouter이며 기본 모델은 `openai/gpt-4o-mini`입니다. 제공자와 모델은 웹 UI에서 바꾸며 설정은 `state/llm_settings.json`에 저장됩니다. OpenRouter 키는 `.env`의 `OPENROUTER_API_KEY`를 사용하고, Ollama는 OpenAI 호환 주소(기본 `http://localhost:11434/v1`)로 요청합니다. Ollama 모델은 도구 호출을 지원해야 하며, OpenRouter 웹 검색 플러그인은 Ollama에서 사용하지 않습니다. 앱이 대화 history를 직접 보관합니다.
+기본 제공자는 OpenRouter이며 기본 모델은 `openai/gpt-4o-mini`입니다. 제공자와 모델은 웹 UI에서 바꾸며 설정은 `state/llm_settings.json`에 저장됩니다. OpenRouter 키는 `.env`의 `OPENROUTER_API_KEY`를 사용하고, Ollama는 OpenAI 호환 주소(기본 `http://localhost:11434/v1`)로 요청합니다. Ollama 모델은 도구 호출을 지원해야 하며, OpenRouter 웹 검색 플러그인은 Ollama에서 사용하지 않습니다. ModelDock도 OpenAI 호환 주소(`http://서버:포트/v1`)로 요청하며, 서버와 모델이 도구 호출(`tools`)을 지원해야 합니다. 웹 검색 플러그인은 쓰지 않고, 리다이렉트는 따라가지 않으며, 서버가 `503`과 `Retry-After`로 모델 기동을 알리면 그 시간만큼 기다려 다시 보냅니다(최대 3회). 앱이 대화 history를 직접 보관합니다.
 
 ## 초기 상태와 개발 시작
 
