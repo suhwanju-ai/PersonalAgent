@@ -5,6 +5,7 @@ import functools
 import ipaddress
 import os
 import json
+import math
 import urllib.parse
 
 # ── 경로 ──────────────────────────────────────────────────────────────
@@ -170,20 +171,19 @@ _LLM_CACHE = {"stamp": None, "settings": None}
 
 def modeldock_key():
     """MODELDOCK_API_KEY의 앞뒤 공백을 지운 값. 없으면 빈 문자열. 값은 밖으로 내보내지 않는다."""
-    try:
-        load_env()
-        return os.environ.get("MODELDOCK_API_KEY", "").strip()
-    except Exception:
-        return ""
+    # load_env()는 import 때와 설정을 읽을 때 이미 불렸다. 여기서는 .env를 다시 열지 않는다.
+    return os.environ.get("MODELDOCK_API_KEY", "").strip()
 
 
 def _parse_context_tokens(value):
     """0(기본값 사용) 또는 512~2000000 정수. 문자열 숫자는 허용, bool은 거부한다."""
     if isinstance(value, bool):
         raise ValueError("ModelDock 컨텍스트 크기는 숫자로 입력해 주세요.")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("ModelDock 컨텍스트 크기는 유한한 숫자로 입력해 주세요.")
     try:
         number = int(value.strip()) if isinstance(value, str) else int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ValueError("ModelDock 컨텍스트 크기는 숫자로 입력해 주세요.")
     if isinstance(value, float) and value != number:
         raise ValueError("ModelDock 컨텍스트 크기는 정수로 입력해 주세요.")

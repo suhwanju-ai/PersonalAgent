@@ -74,13 +74,36 @@ class ConfigTests(unittest.TestCase):
             config.save_llm_settings(self._payload(provider="azure"))
 
     def test_context_tokens_range(self):
-        for bad in (511, 2000001, "abc", -1):
+        for bad in (511, 2000001, "abc", -1, True, float("inf"), float("nan")):
             with self.subTest(value=bad), self.assertRaises(ValueError):
                 config.save_llm_settings(self._payload(modeldock_context_tokens=bad))
-        for good in (0, 4096):
+        for good in (0, 4096, "4096"):
             with self.subTest(value=good):
                 config.save_llm_settings(self._payload(modeldock_context_tokens=good))
-                self.assertEqual(config.llm_settings()["modeldock_context_tokens"], good)
+                self.assertEqual(config.llm_settings()["modeldock_context_tokens"], int(good))
+
+    def test_read_nonfinite_context_tokens_falls_back(self):
+        for raw in ("Infinity", "-Infinity", "NaN", "1e999"):
+            with self.subTest(raw=raw):
+                self._write('{"provider": "ollama", "modeldock_context_tokens": %s}' % raw)
+                config._LLM_CACHE["settings"] = None
+                settings = config.llm_settings()
+                self.assertEqual(settings["modeldock_context_tokens"], 0)
+                self.assertEqual(settings["provider"], "ollama")
+
+    def test_key_set_not_written_to_file(self):
+        os.environ["MODELDOCK_API_KEY"] = "secret-x"
+        config.save_llm_settings(self._payload())
+        with open(config.LLM_SETTINGS_PATH, encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("modeldock_key_set", text)
+        self.assertNotIn("secret-x", text)
+
+    def test_unselected_modeldock_url_validated_only_when_present(self):
+        base = {"provider": "openrouter", "model": "x/y"}
+        config.save_llm_settings(dict(base, modeldock_base_url=""))
+        with self.assertRaises(ValueError):
+            config.save_llm_settings(dict(base, modeldock_base_url="ftp://h/v1"))
 
     def test_key_set_flag_never_exposes_key(self):
         os.environ["MODELDOCK_API_KEY"] = "secret-x"
