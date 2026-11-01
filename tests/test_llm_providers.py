@@ -129,7 +129,7 @@ class FakeModelDock:
 
     handler(request) -> (status, headers, body). request는
     {"method", "path", "headers"(소문자 키), "body"(파싱된 JSON 또는 None)}이고
-    body가 str이면 그대로, 그 밖에는 JSON으로 내보낸다.
+    body가 bytes/str이면 그대로, 그 밖에는 JSON으로 내보낸다.
     """
 
     def __init__(self, handler):
@@ -148,8 +148,10 @@ class FakeModelDock:
                            "headers": {k.lower(): v for k, v in self.headers.items()}}
                 outer.requests.append(request)
                 status, headers, payload = handler(request)
-                data = payload if isinstance(payload, str) else json.dumps(payload)
-                data = data.encode("utf-8")
+                if isinstance(payload, bytes):
+                    data = payload
+                else:
+                    data = (payload if isinstance(payload, str) else json.dumps(payload)).encode("utf-8")
                 self.send_response(status)
                 for name, value in (headers or {}).items():
                     self.send_header(name, value)
@@ -313,9 +315,38 @@ class TransportTests(unittest.TestCase):
         self.use(fake)
         sleep = self.sleeps()
         self.call()
-        self.assertTrue(sleep.call_args_list)
-        for c in sleep.call_args_list:
-            self.assertLessEqual(c.args[0], 30)
+        sleep.assert_called_once_with(30)
+
+    def test_non_ascii_digit_retry_after_is_ignored(self):
+        fake = self.serve(lambda r: (503, {"Retry-After": "\u00b2"},
+                                     "{}"))
+        self.use(fake)
+        sleep = self.sleeps()
+        with self.assertRaises(llm.LLMError) as ctx:
+            self.call()
+        self.assertIn("HTTP 503", str(ctx.exception))
+        self.assertEqual(len(fake.requests), 2)
+        sleep.assert_called_once_with(2.0)
+
+    def test_non_json_success_body_raises_llm_error(self):
+        for body in ("<html>web ui</html>", b"\xff\xfe\x00bad"):
+            with self.subTest(body=body):
+                fake = self.serve(lambda r, b=body: (200, {}, b))
+                self.use(fake)
+                with self.assertRaises(llm.LLMError) as ctx:
+                    self.call()
+                self.assertNotIn("web ui", str(ctx.exception))
+
+    def test_trace_scrubs_key_echoed_in_response(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        fake = self.serve(lambda r: ok_reply("echo " + r["headers"]["authorization"]))
+        self.use(fake)
+        trace = []
+        result = self.call(trace=trace)
+        self.assertNotIn(self.KEY, json.dumps(trace))
+        self.assertIn("***", trace[0]["response"]["choices"][0]["message"]["content"])
+        self.assertEqual(sorted(trace[0]), ["elapsed", "request", "response", "url"])
+        self.assertTrue(result["text"].startswith("echo "))
 
     def test_retry_after_tries_are_limited(self):
         fake = self.serve(lambda r: (503, {"Retry-After": "1"}, "{}"))
@@ -345,12 +376,14 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(req["headers"]["authorization"], "Bearer " + self.KEY)
 
     def test_list_models_rejects_bad_shapes(self):
-        for body in ({"data": "x"}, {"data": [{"id": 1}]}, {"data": [1]}, {"nope": []}, []):
+        for body in ({"data": "x"}, {"data": [{"id": 1}]}, {"data": [1]}, {"nope": []}, [],
+                     "<html>web ui</html>", b"\xff\xfe\x00bad"):
             with self.subTest(body=body):
                 fake = self.serve(lambda r, b=body: (200, {}, b))
                 self.use(fake)
-                with self.assertRaises(llm.LLMError):
+                with self.assertRaises(llm.LLMError) as ctx:
                     llm.list_models()
+                self.assertNotIn("web ui", str(ctx.exception))
 
     def test_tool_call_response_is_converted(self):
         message = {"content": None, "tool_calls": [

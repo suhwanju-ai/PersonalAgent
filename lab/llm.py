@@ -50,6 +50,17 @@ def _scrub(text):
     return text
 
 
+def _scrub_obj(value):
+    """응답/요청 구조 안의 모든 문자열에서 키를 가린다. 구조와 형은 그대로 둔다."""
+    if isinstance(value, str):
+        return _scrub(value)
+    if isinstance(value, list):
+        return [_scrub_obj(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _scrub_obj(v) for k, v in value.items()}
+    return value
+
+
 def _message(detail):
     try:
         return json.loads(detail)["error"].get("message", detail)
@@ -89,8 +100,8 @@ def _retry_after(e):
     """503의 Retry-After가 0 이상의 정수 초이면 그 값(상한 적용), 아니면 None."""
     value = (e.headers.get("Retry-After") if e.headers else None) or ""
     value = value.strip()
-    if not value.isdigit():
-        return None
+    if not (value.isascii() and value.isdecimal() and len(value) <= 6):
+        return None             # '²' 같은 비ASCII 숫자나 지나치게 긴 값은 무시한다
     return min(int(value), RETRY_AFTER_MAX_SLEEP)
 
 
@@ -132,6 +143,9 @@ def _send(url, method, body, settings, timeout=None, retries=1):
                 time.sleep(2.0)
                 continue
             raise LLMError("network: %s" % _scrub(getattr(e, "reason", None) or e.__class__.__name__))
+        except ValueError:
+            # JSON이 아니거나 UTF-8이 아닌 본문(주소에 /v1을 빠뜨려 웹 화면이 응답한 경우 등). 본문은 담지 않는다.
+            raise LLMError("응답이 JSON이 아닙니다")
 
 
 def _post(payload, settings, timeout=None, retries=1):
@@ -224,7 +238,8 @@ def call(system_prompt, items, declarations, web_search=False, temperature=None,
     data = _post(payload, settings, retries=1)
     if trace is not None:
         trace.append({"url": _endpoint(settings),
-                      "request": json.loads(json.dumps(payload)), "response": data,
+                      "request": _scrub_obj(json.loads(json.dumps(payload))),
+                      "response": _scrub_obj(data),
                       "elapsed": round(time.time() - started, 2)})
 
     choices = data.get("choices") or []
