@@ -3,9 +3,12 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
-from lab import config
+from lab import config, llm
 
 
 class ConfigTests(unittest.TestCase):
@@ -119,6 +122,248 @@ class ConfigTests(unittest.TestCase):
         config.save_llm_settings({"provider": "openrouter", "model": "x/y",
                                   "modeldock_context_tokens": 4096})
         self.assertEqual(config.context_window_tokens(), config.CONTEXT_WINDOW_TOKENS)
+
+
+class FakeModelDock:
+    """테스트용 OpenAI 호환 서버. 포트 0으로 스레드에서 열고 받은 요청을 requests에 쌓는다.
+
+    handler(request) -> (status, headers, body). request는
+    {"method", "path", "headers"(소문자 키), "body"(파싱된 JSON 또는 None)}이고
+    body가 str이면 그대로, 그 밖에는 JSON으로 내보낸다.
+    """
+
+    def __init__(self, handler):
+        self.requests = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _handle(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                try:
+                    body = json.loads(raw.decode("utf-8")) if raw else None
+                except ValueError:
+                    body = None
+                request = {"method": self.command, "path": self.path, "body": body,
+                           "headers": {k.lower(): v for k, v in self.headers.items()}}
+                outer.requests.append(request)
+                status, headers, payload = handler(request)
+                data = payload if isinstance(payload, str) else json.dumps(payload)
+                data = data.encode("utf-8")
+                self.send_response(status)
+                for name, value in (headers or {}).items():
+                    self.send_header(name, value)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = _handle
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    @property
+    def base_url(self):
+        return "http://127.0.0.1:%d/v1" % self.server.server_address[1]
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+
+def ok_reply(content="안녕"):
+    return (200, {}, {"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+                      "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+
+
+class TransportTests(unittest.TestCase):
+    KEY = "md-secret-key-123"
+
+    def serve(self, handler):
+        fake = FakeModelDock(handler)
+        self.addCleanup(fake.close)
+        return fake
+
+    def use(self, fake, **extra):
+        """config.llm_settings가 fake 서버를 가리키게 한다."""
+        settings = {"provider": "modeldock", "model": "m1", "modeldock_model": "m1",
+                    "modeldock_base_url": fake.base_url, "modeldock_context_tokens": 0,
+                    "modeldock_key_set": True, "ollama_base_url": config.OLLAMA_BASE_DEFAULT}
+        settings.update(extra)
+        patcher = mock.patch.object(config, "llm_settings", return_value=settings)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return settings
+
+    def set_env(self, name, value):
+        """환경변수를 설정(None이면 제거)하고 테스트가 끝나면 원래대로 되돌린다."""
+        old = os.environ.get(name)
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+        def restore():
+            if old is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = old
+        self.addCleanup(restore)
+
+    def sleeps(self):
+        patcher = mock.patch.object(llm.time, "sleep")
+        sleep = patcher.start()
+        self.addCleanup(patcher.stop)
+        return sleep
+
+    def call(self, **kwargs):
+        return llm.call("sys", [{"role": "user", "content": "hi"}], [], **kwargs)
+
+    def test_sends_bearer_and_json_to_v1_chat_completions(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        fake = self.serve(lambda r: ok_reply())
+        self.use(fake)
+        result = self.call(web_search=True)
+        self.assertEqual(result["text"], "안녕")
+        self.assertEqual(len(fake.requests), 1)
+        req = fake.requests[0]
+        self.assertEqual(req["method"], "POST")
+        self.assertEqual(req["path"], "/v1/chat/completions")
+        self.assertEqual(req["headers"]["authorization"], "Bearer " + self.KEY)
+        self.assertEqual(req["headers"]["content-type"], "application/json")
+        self.assertNotIn("http-referer", req["headers"])
+        self.assertNotIn("x-title", req["headers"])
+        self.assertEqual(req["body"]["model"], "m1")
+        self.assertIs(req["body"]["stream"], False)
+        self.assertNotIn("plugins", req["body"])
+
+    def test_trace_has_no_headers_or_key(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        fake = self.serve(lambda r: ok_reply())
+        self.use(fake)
+        trace = []
+        self.call(trace=trace)
+        self.assertNotIn(self.KEY, json.dumps(trace))
+        self.assertNotIn("headers", trace[0])
+
+    def test_no_authorization_header_without_key(self):
+        self.set_env("MODELDOCK_API_KEY", None)
+        fake = self.serve(lambda r: ok_reply())
+        self.use(fake)
+        self.call()
+        self.assertNotIn("authorization", fake.requests[0]["headers"])
+
+    def test_error_body_echoing_key_is_masked(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        fake = self.serve(lambda r: (401, {}, {"error": {
+            "message": "bad key " + r["headers"]["authorization"][len("Bearer "):]}}))
+        self.use(fake)
+        with self.assertRaises(llm.LLMError) as ctx:
+            self.call()
+        self.assertNotIn(self.KEY, str(ctx.exception))
+        self.assertIn("***", str(ctx.exception))
+        self.assertIn("401", str(ctx.exception))
+
+    def test_scrub_masks_both_keys_and_ignores_empty(self):
+        self.set_env("MODELDOCK_API_KEY", "md-key-aaa")
+        self.set_env("OPENROUTER_API_KEY", "or-key-bbb")
+        self.assertEqual(llm._scrub("a md-key-aaa b or-key-bbb c"), "a *** b *** c")
+        self.set_env("MODELDOCK_API_KEY", "")
+        self.set_env("OPENROUTER_API_KEY", "")
+        self.assertEqual(llm._scrub("그대로 두기"), "그대로 두기")
+
+    def test_redirect_is_not_followed(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        other = self.serve(lambda r: ok_reply())
+        fake = self.serve(lambda r: (302, {"Location": other.base_url + "/chat/completions"}, ""))
+        self.use(fake)
+        self.sleeps()
+        with self.assertRaises(llm.LLMError) as ctx:
+            self.call()
+        self.assertIn("HTTP 302", str(ctx.exception))
+        self.assertEqual(other.requests, [])
+
+    def test_retry_after_503_then_success(self):
+        replies = [(503, {"Retry-After": "0"}, {"error": {"message": "busy"}}), ok_reply()]
+        fake = self.serve(lambda r: replies.pop(0))
+        self.use(fake)
+        sleep = self.sleeps()
+        self.assertEqual(self.call()["text"], "안녕")
+        self.assertEqual(len(fake.requests), 2)
+        sleep.assert_called_once_with(0)
+
+    def test_503_without_retry_after_is_not_looped(self):
+        fake = self.serve(lambda r: (503, {}, {"error": {"message": "down"}}))
+        self.use(fake)
+        self.sleeps()
+        with self.assertRaises(llm.LLMError) as ctx:
+            self.call()
+        self.assertEqual(len(fake.requests), 2)
+        self.assertIn("HTTP 503", str(ctx.exception))
+
+    def test_retry_after_is_capped(self):
+        replies = [(503, {"Retry-After": "999"}, "{}"), ok_reply()]
+        fake = self.serve(lambda r: replies.pop(0))
+        self.use(fake)
+        sleep = self.sleeps()
+        self.call()
+        self.assertTrue(sleep.call_args_list)
+        for c in sleep.call_args_list:
+            self.assertLessEqual(c.args[0], 30)
+
+    def test_retry_after_tries_are_limited(self):
+        fake = self.serve(lambda r: (503, {"Retry-After": "1"}, "{}"))
+        self.use(fake)
+        self.sleeps()
+        with self.assertRaises(llm.LLMError):
+            self.call()
+        # 첫 요청 + Retry-After 재시도 3번 + 일반 재시도 1번
+        self.assertEqual(len(fake.requests), 5)
+
+    def test_429_raises_quota_exceeded(self):
+        fake = self.serve(lambda r: (429, {}, {"error": {"message": "slow down"}}))
+        self.use(fake)
+        self.sleeps()
+        with self.assertRaises(llm.QuotaExceeded):
+            self.call()
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_list_models_parses_openai_list(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        fake = self.serve(lambda r: (200, {}, {"object": "list", "data": [{"id": "a"}, {"id": "b"}]}))
+        settings = self.use(fake)
+        self.assertEqual(llm.list_models(), ["a", "b"])
+        self.assertEqual(llm.list_models(settings), ["a", "b"])
+        req = fake.requests[0]
+        self.assertEqual((req["method"], req["path"]), ("GET", "/v1/models"))
+        self.assertEqual(req["headers"]["authorization"], "Bearer " + self.KEY)
+
+    def test_list_models_rejects_bad_shapes(self):
+        for body in ({"data": "x"}, {"data": [{"id": 1}]}, {"data": [1]}, {"nope": []}, []):
+            with self.subTest(body=body):
+                fake = self.serve(lambda r, b=body: (200, {}, b))
+                self.use(fake)
+                with self.assertRaises(llm.LLMError):
+                    llm.list_models()
+
+    def test_tool_call_response_is_converted(self):
+        message = {"content": None, "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "memo_tool_1", "arguments": '{"text": "x"}'}}]}
+        fake = self.serve(lambda r: (200, {}, {"choices": [{"message": message,
+                                                            "finish_reason": "tool_calls"}]}))
+        self.use(fake)
+        result = self.call()
+        self.assertEqual(result["calls"], [{"name": "memo_tool_1", "args": {"text": "x"},
+                                            "call_id": "c1", "bad_args": False}])
+        self.assertEqual(result["items"][0]["type"], "function_call")
+        self.assertEqual(result["items"][0]["call_id"], "c1")
 
 
 if __name__ == "__main__":
