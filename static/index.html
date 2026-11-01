@@ -31,13 +31,22 @@
       <div class="card-head"><div><h2 id="llmSettingsHeading">모델 연결</h2><span class="subtle">선택한 설정은 이 PC에 저장됩니다</span></div></div>
       <form id="llmSettingsForm" class="llm-settings-form">
         <label for="llmProvider">제공자</label>
-        <select id="llmProvider"><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option></select>
+        <select id="llmProvider"><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option><option value="modeldock">ModelDock</option></select>
         <label for="llmModel">모델 이름</label>
         <input id="llmModel" type="text" maxlength="160" autocomplete="off" placeholder="Ollama에 설치한 모델 이름" required>
+        <datalist id="modeldockModels"></datalist>
         <div id="ollamaSettings" class="llm-ollama-settings" hidden>
           <label for="ollamaBaseUrl">Ollama API 주소</label>
           <input id="ollamaBaseUrl" type="text" inputmode="url" autocomplete="url" placeholder="http://localhost:11434/v1">
           <p class="hint">Ollama 주소는 앱 서버에서 접근합니다. 운영 서버와 Ollama가 다른 장비라면 localhost 대신 운영 서버에서 접근 가능한 주소를 입력하세요. 도구 호출을 지원하는 모델이 필요합니다.</p>
+        </div>
+        <div id="modeldockSettings" class="llm-ollama-settings" hidden>
+          <label for="modeldockBaseUrl">ModelDock 서버 주소</label>
+          <input id="modeldockBaseUrl" type="text" inputmode="url" autocomplete="url" placeholder="http://서버IP:6060/v1">
+          <label for="modeldockContext">컨텍스트 창 크기 (토큰)</label>
+          <input id="modeldockContext" type="number" min="0" step="1" placeholder="비워 두면 기본값">
+          <p class="hint">ModelDock 모델의 <code>ctx</code> 기본값은 4096입니다. 키는 .env의 MODELDOCK_API_KEY에서 읽습니다.</p>
+          <div><button type="button" class="ghost" id="loadModeldockModels">모델 목록 불러오기</button> <span id="modeldockKeyNote" class="meta"></span></div>
         </div>
         <p id="openRouterSettings" class="hint">OpenRouter 키는 .env의 OPENROUTER_API_KEY에서 읽습니다.</p>
         <div class="llm-settings-footer"><span id="llmSettingsNote" class="meta" aria-live="polite"></span><button class="primary" id="saveLlmSettings" type="submit">설정 저장</button></div>

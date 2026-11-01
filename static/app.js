@@ -7,6 +7,7 @@ const esc = (s) => String(s == null ? "" : s)
 let STATE = null;
 let LLM_SETTINGS_CACHE = null;
 let llmSettingsDirty = false;
+const PROVIDER_LABELS = { openrouter: "OpenRouter", ollama: "Ollama", modeldock: "ModelDock" };
 
 async function get(path) {
   const r = await fetch(path);
@@ -55,7 +56,7 @@ function drawContext(c) {
   if (!c) return;
   const ratio = c.limit > 0 ? c.total / c.limit * 100 : 0;
   const totalLabel = `${tokenText(c.total)} / ${tokenText(c.limit)} tokens · ${percentText(ratio)}%`;
-  const providerName = c.provider === "ollama" ? "Ollama" : "OpenRouter";
+  const providerName = PROVIDER_LABELS[c.provider] || c.provider;
   $("contextModel").textContent = `${providerName} · ${c.model}`;
   $("contextTotal").textContent = `${c.basis === "api" ? "" : "약 "}${totalLabel}`;
   $("contextUsed").style.width = `${Math.min(100, Math.max(0, ratio))}%`;
@@ -319,7 +320,7 @@ function draw() {
   drawContext(STATE.context_window);
   drawLlmSettings(STATE.llm_settings);
   $("chipTools").textContent = `도구 ${STATE.tools.length}`;
-  const providerName = STATE.llm_settings.provider === "ollama" ? "Ollama" : "OpenRouter";
+  const providerName = PROVIDER_LABELS[STATE.llm_settings.provider] || STATE.llm_settings.provider;
   $("headerModel").textContent = STATE.llm_settings.model
     ? `${providerName} · ${STATE.llm_settings.model}` : "모델 확인 불가";
   $("prompt").value = STATE.prompt;
@@ -334,11 +335,15 @@ function draw() {
 }
 
 function updateLlmSettingsFields() {
-  const useOllama = $("llmProvider").value === "ollama";
-  $("ollamaSettings").hidden = !useOllama;
-  $("openRouterSettings").hidden = useOllama;
-  $("llmModel").placeholder = useOllama
-    ? "Ollama에 설치한 모델 이름" : "OpenRouter 모델 이름";
+  const provider = $("llmProvider").value;
+  $("ollamaSettings").hidden = provider !== "ollama";
+  $("openRouterSettings").hidden = provider !== "openrouter";
+  $("modeldockSettings").hidden = provider !== "modeldock";
+  $("llmModel").placeholder = {
+    ollama: "Ollama에 설치한 모델 이름",
+    modeldock: "ModelDock 모델 이름",
+  }[provider] || "OpenRouter 모델 이름";
+  $("llmModel").setAttribute("list", provider === "modeldock" ? "modeldockModels" : "");
 }
 
 function drawLlmSettings(settings) {
@@ -347,6 +352,11 @@ function drawLlmSettings(settings) {
   $("llmProvider").value = settings.provider || "openrouter";
   $("llmModel").value = settings.model || "";
   $("ollamaBaseUrl").value = settings.ollama_base_url || "http://localhost:11434/v1";
+  $("modeldockBaseUrl").value = settings.modeldock_base_url || "";
+  $("modeldockContext").value = settings.modeldock_context_tokens || "";
+  $("modeldockKeyNote").textContent = settings.modeldock_key_set
+    ? "키가 설정되어 있습니다."
+    : "키가 없습니다. 서버 인증이 꺼져 있을 때만 동작합니다.";
   updateLlmSettingsFields();
 }
 
@@ -1472,6 +1482,26 @@ $("llmModel").addEventListener("input", () => {
   if (LLM_SETTINGS_CACHE) LLM_SETTINGS_CACHE[`${$("llmProvider").value}_model`] = $("llmModel").value.trim();
 });
 $("ollamaBaseUrl").addEventListener("input", () => { llmSettingsDirty = true; });
+$("modeldockBaseUrl").addEventListener("input", () => { llmSettingsDirty = true; });
+$("modeldockContext").addEventListener("input", () => { llmSettingsDirty = true; });
+$("loadModeldockModels").addEventListener("click", async () => {
+  const button = $("loadModeldockModels"), note = $("llmSettingsNote");
+  button.disabled = true;
+  note.textContent = "모델 목록을 불러오는 중…";
+  try {
+    const r = await post("/api/llm/models", { modeldock_base_url: $("modeldockBaseUrl").value.trim() });
+    if (!r.ok) {
+      note.textContent = r.message || "모델 목록을 불러오지 못했습니다.";   // 입력한 값은 그대로 둔다
+      return;
+    }
+    $("modeldockModels").innerHTML = (r.models || []).map((id) => `<option value="${esc(id)}"></option>`).join("");
+    note.textContent = `${(r.models || []).length}개 모델`;
+  } catch (error) {
+    note.textContent = error.message || "모델 목록을 불러오지 못했습니다.";
+  } finally {
+    button.disabled = false;
+  }
+});
 $("llmSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = $("saveLlmSettings"), note = $("llmSettingsNote");
@@ -1485,6 +1515,9 @@ $("llmSettingsForm").addEventListener("submit", async (event) => {
       openrouter_model: LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.openrouter_model || "",
       ollama_model: LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.ollama_model || "",
       ollama_base_url: $("ollamaBaseUrl").value.trim(),
+      modeldock_model: LLM_SETTINGS_CACHE && LLM_SETTINGS_CACHE.modeldock_model || "",
+      modeldock_base_url: $("modeldockBaseUrl").value.trim(),
+      modeldock_context_tokens: parseInt($("modeldockContext").value, 10) || 0,
     });
     if (!r.ok) {
       note.textContent = r.message || "설정을 저장하지 못했습니다.";
