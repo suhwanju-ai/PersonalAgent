@@ -181,4 +181,5 @@ def tools_for(role_name):
         }], []
 
     entries, errors = registry.build()
-    return [e for e in entries if e["source"] != "내장"], errors
+    # 스킬 도구(use_skill 등)는 연구책임자만 쓴다. registry.build()가 섞어 주므로 여기서 뺀다.
+    return [e for e in entries if e["source"] not in ("내장", "스킬")], errors

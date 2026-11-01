@@ -215,7 +215,10 @@ def _delegate_entries(log):
     return entries
 
 
-_SESSION = {"items": None}             # 연구책임자가 기억하는 앞선 대화
+DELEGATE_NUDGE = ("아직 연구원에게 일을 맡기지 않았다. 직접 답하지 말고 delegate_research 로 "
+                  "자료조사 연구원에게 먼저 맡겨 결과를 받은 뒤, 그 결과로 답해라.")
+
+_SESSION = {"items": None}           # 연구책임자가 기억하는 앞선 대화
 
 # 지금 돌고 있는 연구의 진행 상황. research()가 쓰고 progress()가 읽는다.
 _PROGRESS = {"running": False, "log": [], "question": "", "started": 0.0,
@@ -314,6 +317,26 @@ def research(question, follow_up=False, skills_only=None):
         except (llm.LLMError, RuntimeError) as exc:
             return {"ok": False, "message": "처리하지 못했습니다: %s" % str(exc)[:140],
                     "log": log}
+
+        # 작은 모델은 연구원을 부르지 않고 직접 답하곤 한다. 그러면 연구원의 MCP 도구와 웹 검색이
+        # 한 번도 쓰이지 않으므로, 새 연구에서 위임 없이 끝났으면 한 번만 다시 시킨다.
+        if (not follow_up and not out.get("stopped")
+                and not any(e["kind"] == "delegate" for e in log)):
+            try:
+                again = runner.run(DELEGATE_NUDGE, entries,
+                                   prompt=roles.ORCHESTRATOR_PROMPT,
+                                   max_steps=config.ORCH_MAX_STEPS,
+                                   history=out["items"],
+                                   should_stop=lambda: _PROGRESS["stop"])
+            except llm.QuotaExceeded:
+                return {"ok": False, "message": "호출 한도에 걸렸습니다. 잠시 후 다시 시도해 주세요.",
+                        "log": log}
+            except (llm.LLMError, RuntimeError) as exc:
+                return {"ok": False, "message": "처리하지 못했습니다: %s" % str(exc)[:140],
+                        "log": log}
+            again["tokens"] += out["tokens"]
+            again["steps"] += out["steps"]
+            out = again
 
         _SESSION["items"] = out["items"]
         log.append({"kind": "final", "text": out["answer"], "at": time.time(),
