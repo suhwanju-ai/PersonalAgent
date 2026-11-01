@@ -228,6 +228,53 @@ class TransportTests(unittest.TestCase):
     def call(self, **kwargs):
         return llm.call("sys", [{"role": "user", "content": "hi"}], [], **kwargs)
 
+    def fake_opener(self, exc):
+        """llm의 리다이렉트 금지 opener를 항상 exc를 던지는 가짜로 바꾸고, 호출 인자를 기록한다."""
+        opener = mock.Mock()
+        opener.open.side_effect = exc
+        patcher = mock.patch.object(llm, "_NO_REDIRECT_OPENER", opener)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return opener
+
+    def test_timeout_is_not_resent(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        self.use(self.serve(lambda r: ok_reply()))
+        self.sleeps()
+        opener = self.fake_opener(llm.urllib.error.URLError(TimeoutError("timed out")))
+        with self.assertRaises(llm.LLMError) as cm:
+            self.call()
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertTrue(str(cm.exception).startswith("network:"))
+
+    def test_other_network_error_is_retried_once(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        self.use(self.serve(lambda r: ok_reply()))
+        self.sleeps()
+        opener = self.fake_opener(llm.urllib.error.URLError(ConnectionRefusedError("refused")))
+        with self.assertRaises(llm.LLMError):
+            self.call()
+        self.assertEqual(opener.open.call_count, 2)
+
+    def test_list_models_uses_short_timeout(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        settings = self.use(self.serve(lambda r: ok_reply()))
+        self.sleeps()
+        opener = self.fake_opener(llm.urllib.error.URLError(TimeoutError("timed out")))
+        with self.assertRaises(llm.LLMError):
+            llm.list_models(settings)
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_args.kwargs["timeout"], 20)
+
+    def test_empty_modeldock_address_is_llm_error(self):
+        self.set_env("MODELDOCK_API_KEY", self.KEY)
+        settings = self.use(self.serve(lambda r: ok_reply()), modeldock_base_url="")
+        for run in (self.call, lambda: llm.list_models(settings)):
+            with self.assertRaises(llm.LLMError) as cm:
+                run()
+            self.assertEqual(str(cm.exception), "ModelDock 주소가 설정되지 않았습니다")
+            self.assertNotIn(self.KEY, str(cm.exception))
+
     def test_sends_bearer_and_json_to_v1_chat_completions(self):
         self.set_env("MODELDOCK_API_KEY", self.KEY)
         fake = self.serve(lambda r: ok_reply())
@@ -447,6 +494,12 @@ class AppTests(unittest.TestCase):
                 md, llm.LLMError("HTTP %s detail-xyz" % code)))
         self.assertIn("HTTP 400 bad request",
                       app.provider_error_message(md, llm.LLMError("HTTP 400 bad request")))
+
+    def test_error_message_modeldock_fallback(self):
+        message = app.provider_error_message({"provider": "modeldock"},
+                                             llm.LLMError("응답이 JSON이 아닙니다"))
+        self.assertIn("처리하지", message)
+        self.assertNotIn(self.KEY, message)
 
     def test_error_messages_keep_old_providers(self):
         ollama = {"provider": "ollama"}

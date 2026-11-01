@@ -26,6 +26,7 @@ class LLMError(Exception):
 
 # 제공자별 전송 값: 요청 제한 시간(초). 로컬/자체 호스팅 모델은 첫 요청에서 모델을 올리느라 오래 걸릴 수 있다.
 _TIMEOUTS = {"openrouter": 150, "ollama": OLLAMA_TIMEOUT, "modeldock": MODELDOCK_TIMEOUT}
+MODELS_TIMEOUT = 20              # 모델 목록 조회 제한 시간(초). 주소가 틀렸을 때 오래 붙잡지 않는다
 RETRY_AFTER_MAX_SLEEP = 30      # 서버가 Retry-After로 요청한 대기의 상한(초)
 RETRY_AFTER_MAX_TRIES = 3       # Retry-After를 따르는 재시도 최대 횟수 (일반 재시도와 별개)
 
@@ -75,7 +76,9 @@ def _base_url(settings):
     elif provider == "ollama":
         base = settings["ollama_base_url"]
     else:
-        base = settings["modeldock_base_url"]
+        base = settings.get("modeldock_base_url") or ""
+        if not base:                # 손으로 고친 설정 파일 등
+            raise LLMError("ModelDock 주소가 설정되지 않았습니다")
     return base.rstrip("/")
 
 
@@ -107,7 +110,7 @@ def _retry_after(e):
 
 def _send(url, method, body, settings, timeout=None, retries=1):
     provider = settings["provider"]
-    local = provider == "ollama"
+    no_resend_on_timeout = provider in ("ollama", "modeldock")
     if timeout is None:
         timeout = _TIMEOUTS[provider]
     headers = _headers(settings)
@@ -136,9 +139,9 @@ def _send(url, method, body, settings, timeout=None, retries=1):
                 continue
             raise LLMError("HTTP %d %s" % (e.code, detail))
         except (urllib.error.URLError, OSError) as e:
-            # 로컬 모델이 시간 초과면 같은 요청을 다시 보내도 같은 시간을 또 쓴다.
+            # 로컬·자체 호스팅 모델이 시간 초과면 같은 요청을 다시 보내도 같은 시간을 또 쓴다.
             timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
-            if attempt < retries and not (local and timed_out):
+            if attempt < retries and not (no_resend_on_timeout and timed_out):
                 attempt += 1
                 time.sleep(2.0)
                 continue
@@ -156,10 +159,8 @@ def _post(payload, settings, timeout=None, retries=1):
 def list_models(settings=None):
     """ModelDock 서버의 GET {base}/models에서 모델 id 목록을 가져온다. 실패하면 LLMError."""
     settings = settings or config.llm_settings()
-    if not settings.get("modeldock_base_url"):
-        raise LLMError("ModelDock 주소가 설정되지 않았습니다")
     view = dict(settings, provider="modeldock")
-    data = _send("%s/models" % _base_url(view), "GET", None, view, retries=1)
+    data = _send("%s/models" % _base_url(view), "GET", None, view, timeout=MODELS_TIMEOUT, retries=1)
     items = data.get("data") if isinstance(data, dict) else None
     if not isinstance(items, list) or not all(
             isinstance(i, dict) and isinstance(i.get("id"), str) for i in items):

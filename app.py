@@ -132,7 +132,7 @@ def provider_error_message(settings, exc):
     text = str(exc)
     if provider == "modeldock":
         if text.startswith("network:"):
-            return ("ModelDock 서버에 연결하지 못했습니다. 서버 주소·포트(6060)와 "
+            return ("ModelDock 서버에 연결하지 못했습니다. 서버 주소·포트(기본 6060)와 "
                     "네트워크를 확인해 주세요.")
         if text.startswith(("HTTP 401", "HTTP 403")):
             return ("ModelDock이 키를 받아 주지 않습니다. .env의 MODELDOCK_API_KEY와 "

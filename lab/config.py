@@ -202,9 +202,11 @@ def llm_settings():
         stamp = os.stat(LLM_SETTINGS_PATH).st_mtime_ns
     except OSError:
         stamp = None
-    if _LLM_CACHE["settings"] is None or _LLM_CACHE["stamp"] != stamp:
-        _LLM_CACHE["stamp"], _LLM_CACHE["settings"] = stamp, _read_llm_settings()
-    settings = dict(_LLM_CACHE["settings"])
+    cached = _LLM_CACHE["settings"]     # 한 번만 읽는다: 다른 스레드의 저장이 사이에 None으로 바꿀 수 있다
+    if cached is None or _LLM_CACHE["stamp"] != stamp:
+        cached = _read_llm_settings()
+        _LLM_CACHE["stamp"], _LLM_CACHE["settings"] = stamp, cached
+    settings = dict(cached)
     settings["modeldock_key_set"] = bool(modeldock_key())
     return settings
 
