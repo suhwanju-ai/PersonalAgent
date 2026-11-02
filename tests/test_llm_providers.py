@@ -489,9 +489,26 @@ class AppTests(unittest.TestCase):
             message = app.provider_error_message(md, llm.LLMError(text))
             self.assertIn(word, message, text)
             self.assertNotIn(self.KEY, message, text)
-        for code in ("401", "403", "404", "503"):
+        for code in ("401", "403", "404"):
             self.assertNotIn("detail-xyz", app.provider_error_message(
                 md, llm.LLMError("HTTP %s detail-xyz" % code)))
+
+    def test_error_message_503_shows_server_reason(self):
+        md = {"provider": "modeldock"}
+        message = app.provider_error_message(md, llm.LLMError("HTTP 503 model is loading " + self.KEY))
+        self.assertIn("서버 응답: model is loading", message)
+        self.assertNotIn(self.KEY, message)  # 키는 LLMError를 만들 때 이미 가려진다고 가정하지 않고 확인
+        self.assertNotIn("서버 응답", app.provider_error_message(md, llm.LLMError("HTTP 503")))
+
+    def test_error_message_context_overflow(self):
+        md = {"provider": "modeldock"}
+        text = ("HTTP 400 request (6591 tokens) exceeds the available context size "
+                "(4096 tokens), try increasing it")
+        message = app.provider_error_message(md, llm.LLMError(text))
+        self.assertIn("6591", message)
+        self.assertIn("4096", message)
+        self.assertIn("ctx", message)
+        self.assertNotIn("도구 호출을 지원하는 모델", message)
         self.assertIn("HTTP 400 bad request",
                       app.provider_error_message(md, llm.LLMError("HTTP 400 bad request")))
 

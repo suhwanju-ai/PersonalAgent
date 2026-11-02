@@ -6,6 +6,7 @@ run.bat이 이 파일을 실행한다. 브라우저 화면과 /api/*를 제공�
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -126,7 +127,7 @@ def provider_error_message(settings, exc):
     """LLMError를 제공자별 안내 문구로 바꾼다.
 
     LLMError 메시지는 "network: ..." 또는 "HTTP <코드> ..."로 시작하고 키를 담지 않는다
-    (llm._scrub). ModelDock의 401/403/404/503 문구에는 예외 문자열을 넣지 않는다.
+    (llm._scrub). ModelDock의 401/403/404 문구에는 예외 문자열을 넣지 않고, 503에는 서버 사유만 덧붙인다.
     """
     provider = (settings or {}).get("provider")
     text = str(exc)
@@ -140,8 +141,17 @@ def provider_error_message(settings, exc):
         if text.startswith("HTTP 404"):
             return "모델을 찾을 수 없습니다. 이름이 맞는지, 관리자가 공개한 모델인지 확인해 주세요."
         if text.startswith("HTTP 503"):
-            return ("모델이 준비되지 않았습니다(중지·로딩·오류). 잠시 뒤 다시 하거나 "
-                    "관리자에게 시작·자동 기동을 요청해 주세요.")
+            message = ("모델이 준비되지 않았습니다(중지·로딩·오류). 잠시 뒤 다시 하거나 "
+                       "관리자에게 시작·자동 기동을 요청해 주세요.")
+            # 서버가 준 사유(로딩 중인지, 기동 오류인지)를 덧붙인다. 본문은 llm에서 이미 키가 가려지고 300자로 잘렸다.
+            detail = llm._scrub(text[len("HTTP 503"):].strip())[:300]
+            return message + (" 서버 응답: %s" % detail if detail else "")
+        match = re.search(r"request \((\d+) tokens\) exceeds the available context size "
+                          r"\((\d+) tokens\)", text) if text.startswith("HTTP 400") else None
+        if match:
+            return ("요청(%s토큰)이 서버의 컨텍스트 창(%s토큰)을 넘었습니다. ModelDock에서 모델의 ctx를 "
+                    "늘려 다시 배포·시작하거나(서버 슬롯이 여러 개면 ctx ÷ 슬롯 수가 실제 창입니다), "
+                    "MCP 도구를 줄여 요청 크기를 낮춰 주세요." % (match.group(1), match.group(2)))
         if text.startswith("HTTP"):
             return ("ModelDock이 요청을 거부했습니다(%s). 도구 호출을 지원하는 모델인지 "
                     "확인해 주세요." % text)
