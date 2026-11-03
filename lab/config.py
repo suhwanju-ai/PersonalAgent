@@ -127,10 +127,28 @@ AGENT_MAX_STEPS = 10                     # 연구원은 자료를 읽고 코드�
                                          # 6이면 파일 읽기 몇 번에 소진된다
 
 # ── 서버 ──────────────────────────────────────────────────────────────
-HOST = "127.0.0.1"
-PORT = 8770                              # rag-lab(8765) · tool-lab(8766)과 겹치지 않게
+HOST = "127.0.0.1"                       # 자식 에이전트가 듣는 주소이자 앱이 자식을 부르는 주소. 외부로 열지 않는다
+PORT = 8770                             # rag-lab(8765) · tool-lab(8766)과 겹치지 않게
 RESEARCH_PORT = 8771
 EXPERIMENT_PORT = 8772
+
+def listen_host():
+    """메인 앱이 듣는 주소. .env의 APP_HOST(IPv4 주소 또는 localhost), 없으면 127.0.0.1.
+
+    연구·실험 에이전트(자식 프로세스)는 이 값과 무관하게 HOST(127.0.0.1)에서만 듣는다.
+    127.0.0.1이 아닌 주소로 열면 APP_TRUSTED_ORIGINS와 APP_ACCESS_TOKEN이 있어야 접속된다.
+    .env는 시작할 때 한 번만 읽는다.
+    """
+    value = os.environ.get("APP_HOST", "").strip()
+    if not value:
+        return HOST
+    if value.lower() == "localhost":
+        return "127.0.0.1"
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except ValueError:
+        raise ValueError("APP_HOST는 IPv4 주소(예: 0.0.0.0)여야 합니다: %r" % value)
+
 
 def is_link_local_host(hostname):
     """호스트가 링크로컬 IP 리터럴(169.254.x.x, fe80::)인지. 호스트 이름은 검사하지 않는다."""

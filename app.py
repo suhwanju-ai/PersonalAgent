@@ -744,12 +744,25 @@ def main():
     for line in errors:
         print("  " + line)
 
-    address = "http://%s:%d/" % (config.HOST, config.PORT)
-    server = ThreadingHTTPServer((config.HOST, config.PORT), Handler)
+    try:
+        bind_host = config.listen_host()
+    except ValueError as exc:
+        print("\n" + str(exc))
+        orchestrator.stop_all()
+        mcp_client.reset()
+        sys.exit(1)
+    exposed = bind_host != config.HOST
+    # 브라우저로 열거나 출력하는 주소는 같은 서버에서 쓰는 loopback 주소다(0.0.0.0은 접속 주소가 아니다).
+    address = "http://%s:%d/" % (config.HOST if exposed else bind_host, config.PORT)
+    server = ThreadingHTTPServer((bind_host, config.PORT), Handler)
     print("\n주소: %s" % address)
+    if exposed:
+        print("외부 접속을 받습니다(APP_HOST=%s)." % bind_host)
+        if not (config.trusted_origins() and config.access_token()):
+            print("경고: APP_TRUSTED_ORIGINS와 APP_ACCESS_TOKEN이 모두 있어야 외부에서 접속됩니다.")
     print("이 창을 닫으면 앱이 종료됩니다.\n")
 
-    if not os.environ.get("AGENT_LAB_NO_BROWSER"):
+    if not os.environ.get("AGENT_LAB_NO_BROWSER") and not exposed:
         threading.Timer(1.0, lambda: webbrowser.open(address)).start()
     try:
         server.serve_forever()
